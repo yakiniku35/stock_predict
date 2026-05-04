@@ -71,6 +71,12 @@ stock_predict/
 
 Please review the terms of service and usage limits of each data provider before collecting or redistributing data.
 
+## Contributors
+
+Thanks to all contributors.
+
+[![](https://contrib.rocks/image?repo=yakiniku35/stock_predict)](https://github.com/yakiniku35/stock_predict/graphs/contributors)
+
 ## Development Notes
 
 - Keep reproducible setup steps in this README whenever dependencies or entry points change.
