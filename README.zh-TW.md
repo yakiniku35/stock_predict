@@ -40,13 +40,9 @@ python frontend/app.py
 
 # 分工
 
-<a href="https://github.com/yakiniku35/stock_predict/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=yakiniku35/stock_predict" />
-</a>
+感謝所有貢獻者。
 
-- 後端 API 與 yfinance 串接 — @Devotioe
-- 爬蟲腳本 — @yakiniku35
-- 前端 UI、Plotly 圖表、整合測試 — @組員C
+[![](https://contrib.rocks/image?repo=yakiniku35/stock_predict)](https://github.com/yakiniku35/stock_predict/graphs/contributors)
 
 ## 開發筆記
 
