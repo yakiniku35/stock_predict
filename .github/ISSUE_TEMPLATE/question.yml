@@ -1,1 +1,35 @@
+name: 使用問題
+description: 提交使用上的疑問、操作問題或設定問題
+title: "[QUESTION] "
+labels: ["type: question"]
+body:
+  - type: checkboxes
+    attributes:
+      label: 是否已閱讀文件與搜尋相關問題？(必填)
+      description: 請先確認文件、FAQ 或既有 issue 中沒有答案。
+      options:
+        - label: 我已先查過文件與現有問題
+          required: true
 
+  - type: textarea
+    attributes:
+      label: 問題描述(必填)
+      description: 請描述你遇到的疑問或卡住的地方。
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 你已嘗試的方法
+      description: 說明你做過哪些操作、查過哪些資料。
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: 補充資訊
+      description: 可附上錯誤訊息、畫面截圖、環境資訊或連結。
+    validations:
+      required: false
