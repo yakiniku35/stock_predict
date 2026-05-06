@@ -1,1 +1,51 @@
+name: 功能建議
+description: 提出新功能、優化方向或產品想法
+title: "[FEATURE] "
+labels: ["type: feature"]
+body:
+  - type: checkboxes
+    attributes:
+      label: 是否已存在相關建議？(必填)
+      description: 請先搜尋看看是否已有類似提案。
+      options:
+        - label: 我已搜尋過現有的問題與提案
+          required: true
 
+  - type: textarea
+    attributes:
+      label: 功能描述(必填)
+      description: 請清楚描述你希望新增或改善的功能。
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 問題背景
+      description: 這個功能是為了解決什麼問題？目前遇到什麼痛點？
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 建議方案
+      description: 你理想中的操作方式、畫面流程或規則是什麼？
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: 替代方案
+      description: 是否有其他可接受的做法？
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: 其他補充
+      description: 可附上流程圖、截圖、參考連結或類似案例。
+    validations:
+      required: false
