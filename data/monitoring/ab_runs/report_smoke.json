@@ -1,0 +1,37 @@
+{
+  "input": "/Users/peterchiu/stock_predict/data/raw/news_latest.jsonl",
+  "records": 205,
+  "errors": 0,
+  "ab_config": {
+    "enabled": true,
+    "rnn_ratio": 0.35,
+    "key_field": "id",
+    "salt": "stock_predict_ab_v1"
+  },
+  "arms": {
+    "rnn": {
+      "model": "bilstm_sentiment_v1",
+      "records": 78,
+      "errors": 0,
+      "seconds": 0.7654,
+      "records_per_second": 101.9,
+      "distribution": {
+        "positive": 23,
+        "neutral": 38,
+        "negative": 17
+      }
+    },
+    "lexicon": {
+      "model": "lexicon_baseline_v2",
+      "records": 127,
+      "errors": 0,
+      "seconds": 0.0078,
+      "records_per_second": 16382.62,
+      "distribution": {
+        "positive": 26,
+        "neutral": 91,
+        "negative": 10
+      }
+    }
+  }
+}

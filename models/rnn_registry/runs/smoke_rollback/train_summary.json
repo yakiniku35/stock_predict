@@ -1,0 +1,32 @@
+{
+  "input": "/Users/peterchiu/stock_predict/data/normalized/news_with_sentiment.jsonl",
+  "output_dir": "/Users/peterchiu/stock_predict/models/rnn_registry/runs/smoke_rollback",
+  "records": 205,
+  "bad_lines_skipped": 0,
+  "label_source": "field",
+  "training": {
+    "epochs_requested": 1,
+    "epochs_used": 1,
+    "batch_size": 32,
+    "validation_split": 0.2,
+    "class_weight": {
+      "0": 1.2893,
+      "1": 0.6634,
+      "2": 1.3946
+    },
+    "final_train_accuracy": 0.5488,
+    "best_val_accuracy": 0.7561
+  },
+  "runtime": {
+    "seconds": 13.3011,
+    "records_per_second": 15.41,
+    "is_rnn": true,
+    "model": "bilstm_sentiment_v1"
+  },
+  "config": {
+    "vocab_size": 20000,
+    "max_len": 256,
+    "embedding_dim": 96,
+    "lstm_units": 64
+  }
+}

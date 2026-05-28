@@ -223,11 +223,21 @@ stock_predict/
 /Users/peterchiu/stock_predict/.venv/bin/python models/retrain_rnn_and_promote.py \
   --input data/normalized/news_with_sentiment.jsonl \
   --registry-dir models/rnn_registry \
+  --eval-input data/normalized/news_with_sentiment.jsonl \
+  --eval-label-source field \
+  --rollback-metric macro_f1 \
+  --rollback-min-improvement 0.002 \
   --label-source field \
   --epochs 8 \
   --batch-size 64 \
   --summary-output models/rnn_registry/last_retrain_summary.json
 ```
+
+回滾機制說明：
+
+- 若新模型在指定評估指標（例如 `macro_f1`）未達到最小增益，會自動保留舊 active 權重。
+- 可用 `--disable-rollback` 暫時關閉回滾；可用 `--force-promote` 強制升級。
+- 回滾決策與分數比較會寫在 `last_retrain_summary.json` 的 `rollback` 與 `evaluation` 欄位。
 
 ### 2) 使用 RNN 模型做批次推論
 
@@ -274,6 +284,43 @@ stock_predict/
   --registry-dir models/rnn_registry \
   --model-dir models/rnn_registry/runs/20260528_223500
 ```
+
+### 6) 線上 A/B 流量切分（lexicon vs RNN）
+
+```bash
+/Users/peterchiu/stock_predict/.venv/bin/python models/run_sentiment_batch.py \
+  --input data/raw/news_latest.jsonl \
+  --output data/normalized/news_with_sentiment_ab.jsonl \
+  --summary-output data/monitoring/ab_runs/summary_latest.json \
+  --ab-enabled \
+  --ab-rnn-ratio 0.35 \
+  --ab-key-field id \
+  --ab-salt stock_predict_ab_v1 \
+  --rnn-model-dir models/rnn_registry \
+  --rnn-batch-size 128 \
+  --workers 4 \
+  --ab-report-output data/monitoring/ab_runs/report_latest.json
+```
+
+A/B 監控重點：
+
+- `ab-report-output` 會輸出雙臂吞吐、錯誤率、標籤分布（rnn/lexicon 各自統計）。
+- 每筆輸出新增 `sentiment_model`，可追蹤該筆是由哪個模型打分。
+- 流量切分採固定 key + salt 的哈希分流，重跑時同一 key 會穩定落在同一臂。
+
+### 7) 監控報表彙總
+
+```bash
+/Users/peterchiu/stock_predict/.venv/bin/python models/generate_ab_monitoring_report.py \
+  --input-glob "data/monitoring/ab_runs/report_*.json" \
+  --output data/monitoring/ab_report_daily.json
+```
+
+### 8) 定時排程樣板（cron）
+
+完整樣板請看：
+
+- `docs/cron_templates.md`
 
 快準建議（實務）
 

@@ -1,0 +1,30 @@
+{
+  "input_glob": "data/monitoring/ab_runs/report_*.json",
+  "runs": 1,
+  "records": 205,
+  "errors": 0,
+  "arms": {
+    "rnn": {
+      "records": 78,
+      "errors": 0,
+      "seconds": 0.7654,
+      "records_per_second": 101.91,
+      "distribution": {
+        "positive": 23,
+        "neutral": 38,
+        "negative": 17
+      }
+    },
+    "lexicon": {
+      "records": 127,
+      "errors": 0,
+      "seconds": 0.0078,
+      "records_per_second": 16282.05,
+      "distribution": {
+        "positive": 26,
+        "neutral": 91,
+        "negative": 10
+      }
+    }
+  }
+}

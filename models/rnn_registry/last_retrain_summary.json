@@ -1,0 +1,76 @@
+{
+  "registry_dir": "/Users/peterchiu/stock_predict/models/rnn_registry",
+  "run_dir": "/Users/peterchiu/stock_predict/models/rnn_registry/runs/smoke_rollback",
+  "active_model_dir": "/Users/peterchiu/stock_predict/models/rnn_artifacts",
+  "is_rnn": true,
+  "rollback": {
+    "enabled": true,
+    "triggered": true,
+    "metric": "macro_f1",
+    "min_improvement": 0.5,
+    "promoted": false,
+    "reason": "candidate_macro_f1=0.750342, current_macro_f1=1.000000, gain=-0.249658, required>=0.500000"
+  },
+  "evaluation": {
+    "input": "/Users/peterchiu/stock_predict/data/normalized/news_with_sentiment.jsonl",
+    "bad_lines_skipped": 0,
+    "label_source": "field",
+    "records": 120,
+    "candidate": {
+      "model_dir": "/Users/peterchiu/stock_predict/models/rnn_registry/runs/smoke_rollback",
+      "metrics": {
+        "macro_f1": 0.750342,
+        "accuracy": 0.8
+      },
+      "records": 120
+    },
+    "previous_active": {
+      "model_dir": "/Users/peterchiu/stock_predict/models/rnn_artifacts",
+      "metrics": {
+        "macro_f1": 1.0,
+        "accuracy": 1.0
+      },
+      "records": 120
+    },
+    "lexicon_baseline": {
+      "model": "lexicon_baseline_v2",
+      "metrics": {
+        "macro_f1": 0.542546,
+        "accuracy": 0.6
+      },
+      "records": 120
+    }
+  },
+  "train_summary": {
+    "input": "/Users/peterchiu/stock_predict/data/normalized/news_with_sentiment.jsonl",
+    "output_dir": "/Users/peterchiu/stock_predict/models/rnn_registry/runs/smoke_rollback",
+    "records": 205,
+    "bad_lines_skipped": 0,
+    "label_source": "field",
+    "training": {
+      "epochs_requested": 1,
+      "epochs_used": 1,
+      "batch_size": 32,
+      "validation_split": 0.2,
+      "class_weight": {
+        "0": 1.2893,
+        "1": 0.6634,
+        "2": 1.3946
+      },
+      "final_train_accuracy": 0.5488,
+      "best_val_accuracy": 0.7561
+    },
+    "runtime": {
+      "seconds": 13.3011,
+      "records_per_second": 15.41,
+      "is_rnn": true,
+      "model": "bilstm_sentiment_v1"
+    },
+    "config": {
+      "vocab_size": 20000,
+      "max_len": 256,
+      "embedding_dim": 96,
+      "lstm_units": 64
+    }
+  }
+}
