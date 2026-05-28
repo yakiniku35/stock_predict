@@ -38,6 +38,32 @@ pip install -r requirements.txt
 
 The application entry points are not available yet. Once the backend and frontend modules are added, this section should be updated with the commands to run them.
 
+### News Scraper (Phase 1 runnable)
+
+Run the scraper and export normalized news records to JSONL:
+
+```bash
+python -m crawler.news_scraper \
+  --config crawler/news_sources.json \
+  --output data/raw/news_latest.jsonl \
+  --ticker 2330 \
+  --max-articles 200
+```
+
+Common flags:
+
+- `--append`: append records instead of overwriting output.
+- `--max-articles`: cap record count for one run.
+- `--ticker`: set default stock ticker for each record.
+
+Output schema (one JSON object per line):
+
+- `id`, `source`, `headline`, `content`, `url`
+- `published_at` (UTC ISO timestamp)
+- `fetched_at` (UTC ISO timestamp)
+- `language`, `ticker`
+- `sentiment_score`, `sentiment_label` (filled in Phase 2)
+
 ## Project Structure
 
 Current structure:
@@ -75,7 +101,7 @@ Please review the terms of service and usage limits of each data provider before
 
 Thanks to all contributors.
 
-[![](https://contrib.rocks/image?repo=yakiniku35/stock_predict)](https://github.com/yakiniku35/stock_predict/graphs/contributors)
+[![Contributors](https://contrib.rocks/image?repo=yakiniku35/stock_predict)](https://github.com/yakiniku35/stock_predict/graphs/contributors)
 
 ## Development Notes
 
