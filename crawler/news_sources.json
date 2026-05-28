@@ -27,7 +27,28 @@
 			"rss_use_article_content": true,
 			"title_selector": "h1",
 			"time_selector": "time",
-			"content_selector": "article p, p[class*='text-px']",
+			"content_selector": "article p, p[class*='mb-module-gap']",
+			"article_link_exclude": [
+				"/video/",
+				"bcmt=1"
+			]
+		},
+		{
+			"name": "yahoo_finance_tw_html",
+			"type": "html",
+			"enabled": true,
+			"list_url": "https://tw.stock.yahoo.com/news",
+			"base_url": "https://tw.stock.yahoo.com",
+			"language": "zh-TW",
+			"timezone": "Asia/Taipei",
+			"max_items": 120,
+			"timeout_seconds": 20,
+			"retry_count": 2,
+			"rate_limit_seconds": 0.7,
+			"article_link_selector": "a[href*='/news/']",
+			"title_selector": "h1",
+			"time_selector": "time",
+			"content_selector": "article p, p[class*='mb-module-gap']",
 			"article_link_include": [
 				"tw\\.stock\\.yahoo\\.com/news/",
 				"tw\\.news\\.yahoo\\.com/"
@@ -52,9 +73,6 @@
 			"title_selector": "h1",
 			"time_selector": "time",
 			"content_selector": "p",
-			"article_link_include": [
-				"news\\.cnyes\\.com/news/id/"
-			],
 			"article_link_exclude": [
 				"/photo/",
 				"/video/"
