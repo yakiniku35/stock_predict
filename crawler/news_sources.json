@@ -29,6 +29,7 @@
 			"time_selector": "time",
 			"content_selector": "article p, p[class*='mb-module-gap']",
 			"article_link_exclude": [
+				"/news/?$",
 				"/video/",
 				"bcmt=1"
 			]
@@ -54,6 +55,7 @@
 				"tw\\.news\\.yahoo\\.com/"
 			],
 			"article_link_exclude": [
+				"/news/?$",
 				"/video/",
 				"bcmt=1"
 			]

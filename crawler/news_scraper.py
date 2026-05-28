@@ -119,6 +119,13 @@ class NewsScraper:
 		lowered_text = text.lower()
 		return any(keyword.lower() in lowered_text for keyword in keywords)
 
+	def _is_meaningful_article(self, title: str, content: str) -> bool:
+		if not title:
+			return False
+		if title.strip() in {"Yahoo股市", "Yahoo奇摩股市"}:
+			return False
+		return len(compact_text(content)) >= 30
+
 	def _is_allowed_link(self, url: str, source: SourceConfig) -> bool:
 		includes = source.article_link_include or []
 		excludes = source.article_link_exclude or []
@@ -179,6 +186,9 @@ class NewsScraper:
 					stats["errors"] += 1
 
 			full_text = compact_text(f"{title} {description}")
+			if not self._is_meaningful_article(title, description):
+				stats["filtered"] += 1
+				continue
 			if not self._match_keywords(full_text, source):
 				stats["filtered"] += 1
 				continue
@@ -239,6 +249,9 @@ class NewsScraper:
 
 			title, published_at, content = self._extract_article_fields(article_html, source)
 			full_text = compact_text(f"{title} {content}")
+			if not self._is_meaningful_article(title, content):
+				stats["filtered"] += 1
+				continue
 
 			if not self._match_keywords(full_text, source):
 				stats["filtered"] += 1
