@@ -1,4 +1,4 @@
-from __future__ import annotations
+from __future__ import annotations # 不要忘記加這個行
 
 import math
 import re
@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 POSITIVE_TERMS = [
+    "樂觀",
     "上漲",
     "利多",
     "創高",
@@ -143,7 +144,7 @@ class SentimentResult:
     label: str
 
 
-class LexiconSentimentAnalyzer:
+class LexiconSentimentAnalyzer: 
     model_name = "lexicon_baseline_v2"
 
     def __init__(
