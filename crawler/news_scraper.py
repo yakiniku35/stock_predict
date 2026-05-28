@@ -5,6 +5,8 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import re
+from typing import Any
 from urllib.parse import urljoin
 
 import requests
@@ -50,7 +52,10 @@ class SourceConfig:
 	title_selector: str = "h1"
 	time_selector: str = "time"
 	content_selector: str = "p"
+	rss_use_article_content: bool = False
 	base_url: str | None = None
+	article_link_include: list[str] | None = None
+	article_link_exclude: list[str] | None = None
 	ticker_keywords: list[str] | None = None
 	request_headers: dict[str, str] | None = None
 
@@ -61,6 +66,13 @@ def now_utc_iso() -> str:
 
 def compact_text(text: str) -> str:
 	return " ".join((text or "").split())
+
+
+def tag_text(tag: Any, name: str) -> str:
+	node = tag.find(name)
+	if not node:
+		return ""
+	return compact_text(node.get_text(" "))
 
 
 def parse_datetime_or_none(raw: str | None) -> str | None:
@@ -107,6 +119,30 @@ class NewsScraper:
 		lowered_text = text.lower()
 		return any(keyword.lower() in lowered_text for keyword in keywords)
 
+	def _is_allowed_link(self, url: str, source: SourceConfig) -> bool:
+		includes = source.article_link_include or []
+		excludes = source.article_link_exclude or []
+		if includes and not any(re.search(pattern, url) for pattern in includes):
+			return False
+		if excludes and any(re.search(pattern, url) for pattern in excludes):
+			return False
+		return True
+
+	def _extract_article_fields(self, article_html: str, source: SourceConfig) -> tuple[str, str | None, str]:
+		article_soup = BeautifulSoup(article_html, "html.parser")
+		title_node = article_soup.select_one(source.title_selector)
+		time_node = article_soup.select_one(source.time_selector)
+		content_nodes = article_soup.select(source.content_selector)
+
+		title = compact_text(title_node.get_text(" ")) if title_node else ""
+		if time_node:
+			time_raw = compact_text(time_node.get("datetime") or time_node.get_text(" "))
+		else:
+			time_raw = ""
+		content = compact_text(" ".join(node.get_text(" ") for node in content_nodes))
+		published_at = parse_datetime_or_none(time_raw)
+		return title, published_at, content
+
 	def _scrape_rss(self, source: SourceConfig) -> tuple[list[NewsRecord], dict[str, int]]:
 		stats = {"fetched": 0, "deduped": 0, "filtered": 0, "errors": 0}
 		xml_text = self._fetch_text(source.list_url, source.timeout_seconds, source.retry_count)
@@ -114,23 +150,39 @@ class NewsScraper:
 			stats["errors"] += 1
 			return [], stats
 
-		soup = BeautifulSoup(xml_text, "html.parser")
+		soup = BeautifulSoup(xml_text, "xml")
 		items = soup.find_all("item")[: source.max_items]
 		records: list[NewsRecord] = []
 
 		for item in items:
-			title = compact_text(item.find_text("title", default=""))
-			link = compact_text(item.find_text("link", default=""))
-			pub_date = compact_text(item.find_text("pubdate", default=""))
-			raw_description = item.find_text("description", default="")
+			title = tag_text(item, "title")
+			link = tag_text(item, "link")
+			if not self._is_allowed_link(link, source):
+				stats["filtered"] += 1
+				continue
+			pub_date = tag_text(item, "pubDate")
+			raw_description = tag_text(item, "description")
 			description = compact_text(BeautifulSoup(raw_description, "html.parser").get_text(" "))
+			published_at = parse_datetime_or_none(pub_date)
+
+			if source.rss_use_article_content:
+				article_html = self._fetch_text(link, source.timeout_seconds, source.retry_count)
+				if article_html:
+					title_from_page, published_at_from_page, content_from_page = self._extract_article_fields(
+						article_html,
+						source,
+					)
+					title = title_from_page or title
+					published_at = published_at_from_page or published_at
+					description = content_from_page or description
+				else:
+					stats["errors"] += 1
 
 			full_text = compact_text(f"{title} {description}")
 			if not self._match_keywords(full_text, source):
 				stats["filtered"] += 1
 				continue
 
-			published_at = parse_datetime_or_none(pub_date)
 			record_id = make_record_id(link, title, published_at)
 			if record_id in self.seen_ids:
 				stats["deduped"] += 1
@@ -152,6 +204,7 @@ class NewsScraper:
 			)
 			records.append(record)
 			stats["fetched"] += 1
+			time.sleep(max(0.0, source.rate_limit_seconds))
 
 		return records, stats
 
@@ -176,23 +229,21 @@ class NewsScraper:
 		records: list[NewsRecord] = []
 
 		for link in unique_links:
+			if not self._is_allowed_link(link, source):
+				stats["filtered"] += 1
+				continue
 			article_html = self._fetch_text(link, source.timeout_seconds, source.retry_count)
 			if not article_html:
 				stats["errors"] += 1
 				continue
 
-			article_soup = BeautifulSoup(article_html, "html.parser")
-			title = compact_text(article_soup.select_one(source.title_selector).get_text(" ")) if article_soup.select_one(source.title_selector) else ""
-			time_raw = compact_text(article_soup.select_one(source.time_selector).get_text(" ")) if article_soup.select_one(source.time_selector) else ""
-			content_nodes = article_soup.select(source.content_selector)
-			content = compact_text(" ".join(node.get_text(" ") for node in content_nodes))
+			title, published_at, content = self._extract_article_fields(article_html, source)
 			full_text = compact_text(f"{title} {content}")
 
 			if not self._match_keywords(full_text, source):
 				stats["filtered"] += 1
 				continue
 
-			published_at = parse_datetime_or_none(time_raw)
 			record_id = make_record_id(link, title, published_at)
 			if record_id in self.seen_ids:
 				stats["deduped"] += 1
@@ -267,7 +318,10 @@ def load_source_configs(config_path: Path) -> list[SourceConfig]:
 				title_selector=item.get("title_selector", "h1"),
 				time_selector=item.get("time_selector", "time"),
 				content_selector=item.get("content_selector", "p"),
+				rss_use_article_content=bool(item.get("rss_use_article_content", False)),
 				base_url=item.get("base_url"),
+				article_link_include=item.get("article_link_include"),
+				article_link_exclude=item.get("article_link_exclude"),
 				ticker_keywords=item.get("ticker_keywords"),
 				request_headers=item.get("request_headers"),
 			)

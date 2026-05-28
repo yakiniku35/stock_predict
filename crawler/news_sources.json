@@ -1,55 +1,113 @@
 {
 	"sources": [
 		{
-			"name": "google_news_taiwan_stock",
+			"name": "google_news_taiwan_stock_general",
 			"type": "rss",
 			"enabled": true,
-			"list_url": "https://news.google.com/rss/search?q=%E5%8F%B0%E8%82%A1+OR+%E8%82%A1%E5%B8%82&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
+			"list_url": "https://news.google.com/rss/search?q=%E5%8F%B0%E8%82%A1+OR+%E8%82%A1%E5%B8%82+OR+%E9%87%91%E8%9E%8D&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
 			"language": "zh-TW",
 			"timezone": "Asia/Taipei",
-			"max_items": 150,
+			"max_items": 180,
 			"timeout_seconds": 20,
 			"retry_count": 2,
-			"rate_limit_seconds": 0.5,
+			"rate_limit_seconds": 0.4,
 			"ticker_keywords": []
 		},
 		{
-			"name": "google_news_tsmc",
+			"name": "google_news_yahoo_finance_tw",
 			"type": "rss",
 			"enabled": true,
-			"list_url": "https://news.google.com/rss/search?q=2330+OR+%E5%8F%B0%E7%A9%8D%E9%9B%BB+OR+TSMC&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
+			"list_url": "https://news.google.com/rss/search?q=site:tw.stock.yahoo.com/news+%E5%8F%B0%E8%82%A1&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
 			"language": "zh-TW",
 			"timezone": "Asia/Taipei",
-			"max_items": 150,
+			"max_items": 120,
 			"timeout_seconds": 20,
 			"retry_count": 2,
-			"rate_limit_seconds": 0.5,
-			"ticker_keywords": [
-				"2330",
-				"TSMC",
-				"台積電"
+			"rate_limit_seconds": 0.7,
+			"rss_use_article_content": true,
+			"title_selector": "h1",
+			"time_selector": "time",
+			"content_selector": "article p, p[class*='text-px']",
+			"article_link_include": [
+				"tw\\.stock\\.yahoo\\.com/news/",
+				"tw\\.news\\.yahoo\\.com/"
+			],
+			"article_link_exclude": [
+				"/video/",
+				"bcmt=1"
 			]
 		},
-        {
-            
-        },
-
 		{
-			"name": "example_html_source",
-			"type": "html",
-			"enabled": false,
-			"list_url": "https://example.com/finance",
-			"base_url": "https://example.com",
+			"name": "google_news_cnyes",
+			"type": "rss",
+			"enabled": true,
+			"list_url": "https://news.google.com/rss/search?q=site:news.cnyes.com/news/id+%E5%8F%B0%E8%82%A1&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
 			"language": "zh-TW",
 			"timezone": "Asia/Taipei",
-			"max_items": 50,
-			"timeout_seconds": 15,
+			"max_items": 120,
+			"timeout_seconds": 20,
 			"retry_count": 2,
-			"rate_limit_seconds": 1.0,
-			"article_link_selector": "article h2 a",
-			"title_selector": "article h1",
+			"rate_limit_seconds": 0.7,
+			"rss_use_article_content": true,
+			"title_selector": "h1",
 			"time_selector": "time",
-			"content_selector": "article p",
+			"content_selector": "p",
+			"article_link_include": [
+				"news\\.cnyes\\.com/news/id/"
+			],
+			"article_link_exclude": [
+				"/photo/",
+				"/video/"
+			]
+		},
+		{
+			"name": "cnyes_tw_stock_html",
+			"type": "html",
+			"enabled": true,
+			"list_url": "https://news.cnyes.com/news/cat/tw_stock",
+			"base_url": "https://news.cnyes.com",
+			"language": "zh-TW",
+			"timezone": "Asia/Taipei",
+			"max_items": 120,
+			"timeout_seconds": 20,
+			"retry_count": 2,
+			"rate_limit_seconds": 0.7,
+			"article_link_selector": "a[href*='/news/id/']",
+			"title_selector": "h1",
+			"time_selector": "time",
+			"content_selector": "p",
+			"article_link_include": [
+				"news\\.cnyes\\.com/news/id/"
+			],
+			"article_link_exclude": [
+				"/photo/",
+				"/video/"
+			]
+		},
+		{
+			"name": "google_news_ctee",
+			"type": "rss",
+			"enabled": true,
+			"list_url": "https://news.google.com/rss/search?q=site:ctee.com.tw+%E5%8F%B0%E8%82%A1+OR+%E8%B2%A1%E7%B6%93&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
+			"language": "zh-TW",
+			"timezone": "Asia/Taipei",
+			"max_items": 100,
+			"timeout_seconds": 20,
+			"retry_count": 2,
+			"rate_limit_seconds": 0.6,
+			"ticker_keywords": []
+		},
+		{
+			"name": "google_news_economic_daily",
+			"type": "rss",
+			"enabled": true,
+			"list_url": "https://news.google.com/rss/search?q=site:money.udn.com+%E5%8F%B0%E8%82%A1+OR+%E8%B2%A1%E7%B6%93&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
+			"language": "zh-TW",
+			"timezone": "Asia/Taipei",
+			"max_items": 100,
+			"timeout_seconds": 20,
+			"retry_count": 2,
+			"rate_limit_seconds": 0.6,
 			"ticker_keywords": []
 		}
 	]
