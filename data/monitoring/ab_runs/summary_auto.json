@@ -1,0 +1,32 @@
+{
+  "input": "/Users/peterchiu/stock_predict/data/raw/news_latest.jsonl",
+  "output": "/Users/peterchiu/stock_predict/data/normalized/news_with_sentiment_ab_auto.jsonl",
+  "records": 205,
+  "bad_lines_skipped": 0,
+  "errors": 0,
+  "distribution": {
+    "positive": 51,
+    "neutral": 126,
+    "negative": 28
+  },
+  "thresholds": {
+    "positive": 0.2,
+    "negative": -0.2
+  },
+  "runtime": {
+    "execution_mode": "ab_hybrid",
+    "workers": 4,
+    "seconds": 11.7732,
+    "records_per_second": 17.41,
+    "model": "bilstm_sentiment_v1",
+    "is_rnn": "mixed"
+  },
+  "model_type": "ab",
+  "ab_test": {
+    "enabled": true,
+    "rnn_ratio": 0.412891,
+    "ratio_source": "config",
+    "ratio_config": "models/rnn_registry/traffic_policy.json",
+    "report_output": "/Users/peterchiu/stock_predict/data/monitoring/ab_runs/report_auto.json"
+  }
+}

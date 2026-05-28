@@ -238,6 +238,7 @@ stock_predict/
 - 若新模型在指定評估指標（例如 `macro_f1`）未達到最小增益，會自動保留舊 active 權重。
 - 可用 `--disable-rollback` 暫時關閉回滾；可用 `--force-promote` 強制升級。
 - 回滾決策與分數比較會寫在 `last_retrain_summary.json` 的 `rollback` 與 `evaluation` 欄位。
+- 可用 `--event-log` 追加事件記錄，並搭配 `--notify-hook-url` + `--notify-on rollback` 觸發自動告警 hook。
 
 ### 2) 使用 RNN 模型做批次推論
 
@@ -313,8 +314,24 @@ A/B 監控重點：
 ```bash
 /Users/peterchiu/stock_predict/.venv/bin/python models/generate_ab_monitoring_report.py \
   --input-glob "data/monitoring/ab_runs/report_*.json" \
-  --output data/monitoring/ab_report_daily.json
+  --eval-summary models/rnn_registry/last_retrain_summary.json \
+  --output data/monitoring/ab_report_daily.json \
+  --markdown-output data/monitoring/ab_report_daily.md \
+  --ratio-config models/rnn_registry/traffic_policy.json \
+  --write-ratio-config
 ```
+
+輸出重點：
+
+- `ab_report_daily.json`：彙總統計 + 日級資料 + 7/30 日趨勢資料。
+- `ab_report_daily.md`：內含 7/30 日 Mermaid 趨勢圖（RNN vs Lexicon 吞吐）。
+- `traffic_policy.json`：自適應建議的 `rnn_ratio`，供 A/B 線上分流自動讀取。
+
+自適應流量分配說明：
+
+- 會結合最近評估準確率（RNN 與 Lexicon）與近 7 日吞吐量，計算下一版 `rnn_ratio`。
+- `--weight-accuracy` 與 `--weight-throughput` 可調整權重（預設 0.75 / 0.25）。
+- `--max-ratio-step` 限制單次調整幅度，避免流量劇烈震盪。
 
 ### 8) 定時排程樣板（cron）
 

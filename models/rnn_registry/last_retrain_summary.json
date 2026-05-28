@@ -1,6 +1,6 @@
 {
   "registry_dir": "/Users/peterchiu/stock_predict/models/rnn_registry",
-  "run_dir": "/Users/peterchiu/stock_predict/models/rnn_registry/runs/smoke_rollback",
+  "run_dir": "/Users/peterchiu/stock_predict/models/rnn_registry/runs/smoke_alert",
   "active_model_dir": "/Users/peterchiu/stock_predict/models/rnn_artifacts",
   "is_rnn": true,
   "rollback": {
@@ -9,7 +9,7 @@
     "metric": "macro_f1",
     "min_improvement": 0.5,
     "promoted": false,
-    "reason": "candidate_macro_f1=0.750342, current_macro_f1=1.000000, gain=-0.249658, required>=0.500000"
+    "reason": "candidate_macro_f1=0.902741, current_macro_f1=1.000000, gain=-0.097259, required>=0.500000"
   },
   "evaluation": {
     "input": "/Users/peterchiu/stock_predict/data/normalized/news_with_sentiment.jsonl",
@@ -17,10 +17,10 @@
     "label_source": "field",
     "records": 120,
     "candidate": {
-      "model_dir": "/Users/peterchiu/stock_predict/models/rnn_registry/runs/smoke_rollback",
+      "model_dir": "/Users/peterchiu/stock_predict/models/rnn_registry/runs/smoke_alert",
       "metrics": {
-        "macro_f1": 0.750342,
-        "accuracy": 0.8
+        "macro_f1": 0.902741,
+        "accuracy": 0.908333
       },
       "records": 120
     },
@@ -41,9 +41,17 @@
       "records": 120
     }
   },
+  "alert": {
+    "event_log": "/Users/peterchiu/stock_predict/models/rnn_registry/events.log",
+    "notify_on": "rollback",
+    "notify_requested": true,
+    "notify_sent": false,
+    "notify_result": "hook_not_configured",
+    "notify_hook_configured": false
+  },
   "train_summary": {
     "input": "/Users/peterchiu/stock_predict/data/normalized/news_with_sentiment.jsonl",
-    "output_dir": "/Users/peterchiu/stock_predict/models/rnn_registry/runs/smoke_rollback",
+    "output_dir": "/Users/peterchiu/stock_predict/models/rnn_registry/runs/smoke_alert",
     "records": 205,
     "bad_lines_skipped": 0,
     "label_source": "field",
@@ -57,12 +65,12 @@
         "1": 0.6634,
         "2": 1.3946
       },
-      "final_train_accuracy": 0.5488,
-      "best_val_accuracy": 0.7561
+      "final_train_accuracy": 0.5854,
+      "best_val_accuracy": 0.8537
     },
     "runtime": {
-      "seconds": 13.3011,
-      "records_per_second": 15.41,
+      "seconds": 13.6789,
+      "records_per_second": 14.99,
       "is_rnn": true,
       "model": "bilstm_sentiment_v1"
     },

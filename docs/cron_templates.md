@@ -5,8 +5,8 @@
 ## 1) 每日離線重訓 + 自動回滾判斷 + promote
 
 ```cron
-# 每天 02:30 執行，訓練後若指標變差自動回滾
-30 2 * * * cd /Users/peterchiu/stock_predict && /Users/peterchiu/stock_predict/.venv/bin/python models/retrain_rnn_and_promote.py --input data/normalized/news_with_sentiment.jsonl --registry-dir models/rnn_registry --eval-input data/normalized/news_with_sentiment.jsonl --eval-label-source field --rollback-metric macro_f1 --rollback-min-improvement 0.002 --epochs 8 --batch-size 64 --summary-output models/rnn_registry/last_retrain_summary.json >> logs/retrain_rnn.log 2>&1
+# 每天 02:30 執行，訓練後若指標變差自動回滾，並寫入事件 log + webhook 告警
+30 2 * * * cd /Users/peterchiu/stock_predict && /Users/peterchiu/stock_predict/.venv/bin/python models/retrain_rnn_and_promote.py --input data/normalized/news_with_sentiment.jsonl --registry-dir models/rnn_registry --eval-input data/normalized/news_with_sentiment.jsonl --eval-label-source field --rollback-metric macro_f1 --rollback-min-improvement 0.002 --epochs 8 --batch-size 64 --event-log models/rnn_registry/events.log --notify-on rollback --notify-hook-url "https://your-hook-endpoint" --summary-output models/rnn_registry/last_retrain_summary.json >> logs/retrain_rnn.log 2>&1
 ```
 
 ## 2) 每 5 分鐘線上 A/B 推論（lexicon vs RNN）
@@ -19,8 +19,8 @@
 ## 3) 每日彙總 A/B 監控報表
 
 ```cron
-# 每天 03:10 產出前一輪累積報表
-10 3 * * * cd /Users/peterchiu/stock_predict && /Users/peterchiu/stock_predict/.venv/bin/python models/generate_ab_monitoring_report.py --input-glob "data/monitoring/ab_runs/report_*.json" --output data/monitoring/ab_report_daily.json >> logs/ab_report.log 2>&1
+# 每天 03:10 產出前一輪累積報表 + 7/30 日趨勢圖 + 自適應 ratio（寫回策略檔）
+10 3 * * * cd /Users/peterchiu/stock_predict && /Users/peterchiu/stock_predict/.venv/bin/python models/generate_ab_monitoring_report.py --input-glob "data/monitoring/ab_runs/report_*.json" --eval-summary models/rnn_registry/last_retrain_summary.json --output data/monitoring/ab_report_daily.json --markdown-output data/monitoring/ab_report_daily.md --ratio-config models/rnn_registry/traffic_policy.json --weight-accuracy 0.75 --weight-throughput 0.25 --max-ratio-step 0.08 --write-ratio-config >> logs/ab_report.log 2>&1
 ```
 
 ## 4) 可選：低流量時段把 RNN 比例拉高

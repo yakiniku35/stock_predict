@@ -5,6 +5,7 @@ import hashlib
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rnn_sentiment import build_text as build_rnn_text
@@ -52,10 +53,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rnn-model-dir", type=Path, default=Path("models/rnn_registry"))
     parser.add_argument("--rnn-batch-size", type=int, default=128)
     parser.add_argument("--ab-enabled", action="store_true")
-    parser.add_argument("--ab-rnn-ratio", type=float, default=0.5)
+    parser.add_argument("--ab-rnn-ratio", type=float, default=None)
     parser.add_argument("--ab-key-field", type=str, default="id")
     parser.add_argument("--ab-salt", type=str, default="stock_predict_ab_v1")
     parser.add_argument("--ab-report-output", type=Path, default=None)
+    parser.add_argument("--ab-ratio-config", type=Path, default=Path("models/rnn_registry/traffic_policy.json"))
     return parser.parse_args()
 
 
@@ -249,6 +251,21 @@ def _write_ab_report(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _resolve_ab_ratio(cli_ratio: float | None, config_path: Path) -> tuple[float, str]:
+    if cli_ratio is not None:
+        return min(1.0, max(0.0, cli_ratio)), "cli"
+
+    if config_path.exists():
+        try:
+            payload = json.loads(config_path.read_text(encoding="utf-8"))
+            configured = float(payload.get("rnn_ratio", 0.5))
+            return min(1.0, max(0.0, configured)), "config"
+        except (ValueError, TypeError, json.JSONDecodeError):
+            return 0.5, "fallback"
+
+    return 0.5, "default"
+
+
 def main() -> int:
     args = parse_args()
     t0 = time.perf_counter()
@@ -256,6 +273,7 @@ def main() -> int:
 
     workers = max(0, args.workers)
     if args.ab_enabled:
+        effective_ratio, ratio_source = _resolve_ab_ratio(args.ab_rnn_ratio, args.ab_ratio_config)
         analyzer = LexiconSentimentAnalyzer(
             positive_threshold=args.positive_threshold,
             negative_threshold=args.negative_threshold,
@@ -266,7 +284,7 @@ def main() -> int:
 
         rnn_indices, lex_indices = _choose_ab_indices(
             rows,
-            rnn_ratio=args.ab_rnn_ratio,
+            rnn_ratio=effective_ratio,
             key_field=args.ab_key_field,
             salt=args.ab_salt,
         )
@@ -298,12 +316,15 @@ def main() -> int:
 
         ab_report_output = args.ab_report_output or _default_ab_report_path(args.summary_output)
         ab_report = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "input": str(args.input),
             "records": len(rows),
             "errors": errors,
             "ab_config": {
                 "enabled": True,
-                "rnn_ratio": min(1.0, max(0.0, args.ab_rnn_ratio)),
+                "rnn_ratio": effective_ratio,
+                "ratio_source": ratio_source,
+                "ratio_config": str(args.ab_ratio_config),
                 "key_field": args.ab_key_field,
                 "salt": args.ab_salt,
             },
@@ -379,7 +400,9 @@ def main() -> int:
         ab_report_output = args.ab_report_output or _default_ab_report_path(args.summary_output)
         summary["ab_test"] = {
             "enabled": True,
-            "rnn_ratio": min(1.0, max(0.0, args.ab_rnn_ratio)),
+            "rnn_ratio": effective_ratio,
+            "ratio_source": ratio_source,
+            "ratio_config": str(args.ab_ratio_config),
             "report_output": str(ab_report_output),
         }
     args.summary_output.parent.mkdir(parents=True, exist_ok=True)

@@ -5,9 +5,10 @@ import json
 import random
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
 from sklearn.metrics import accuracy_score, f1_score
 
 from rnn_sentiment import build_text, get_active_model, load_artifacts, load_jsonl, predict_many, set_active_model
@@ -35,6 +36,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rollback-min-improvement", type=float, default=0.0)
     parser.add_argument("--disable-rollback", action="store_true")
     parser.add_argument("--force-promote", action="store_true")
+    parser.add_argument("--event-log", type=Path, default=Path("models/rnn_registry/events.log"))
+    parser.add_argument("--notify-hook-url", type=str, default="")
+    parser.add_argument("--notify-timeout", type=float, default=10.0)
+    parser.add_argument("--notify-on", choices=["rollback", "all", "none"], default="rollback")
     parser.add_argument(
         "--summary-output",
         type=Path,
@@ -144,6 +149,33 @@ def _evaluate_lexicon(eval_rows: list[dict], eval_labels: list[str]) -> dict:
     }
 
 
+def _append_event_log(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _should_notify(mode: str, rollback_triggered: bool) -> bool:
+    if mode == "none":
+        return False
+    if mode == "all":
+        return True
+    return rollback_triggered
+
+
+def _send_hook(url: str, payload: dict, timeout: float) -> tuple[bool, str]:
+    if not url.strip():
+        return False, "hook_not_configured"
+    try:
+        response = requests.post(url, json=payload, timeout=max(1.0, timeout))
+        ok = 200 <= response.status_code < 300
+        if ok:
+            return True, f"http_{response.status_code}"
+        return False, f"http_{response.status_code}"
+    except requests.RequestException as exc:
+        return False, f"request_error:{exc}"
+
+
 def main() -> int:
     args = parse_args()
 
@@ -212,6 +244,28 @@ def main() -> int:
 
     train_summary = json.loads(train_summary_path.read_text(encoding="utf-8"))
 
+    event_payload = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": "rnn_retrain_decision",
+        "registry_dir": str(registry_dir),
+        "run_dir": str(run_dir),
+        "active_model_dir": str(active_dir) if active_dir else None,
+        "rollback_triggered": rollback_triggered,
+        "promoted": promoted,
+        "metric": metric_name,
+        "min_improvement": min_gain,
+        "reason": decision_reason,
+        "candidate_metrics": candidate_eval.get("metrics", {}),
+        "previous_active_metrics": (previous_active_eval or {}).get("metrics", {}),
+    }
+    _append_event_log(args.event_log, event_payload)
+
+    notify_requested = _should_notify(args.notify_on, rollback_triggered)
+    notify_sent = False
+    notify_result = "skipped"
+    if notify_requested:
+        notify_sent, notify_result = _send_hook(args.notify_hook_url, event_payload, timeout=args.notify_timeout)
+
     summary = {
         "registry_dir": str(registry_dir),
         "run_dir": str(run_dir),
@@ -233,6 +287,14 @@ def main() -> int:
             "candidate": candidate_eval,
             "previous_active": previous_active_eval,
             "lexicon_baseline": baseline_eval,
+        },
+        "alert": {
+            "event_log": str(args.event_log),
+            "notify_on": args.notify_on,
+            "notify_requested": notify_requested,
+            "notify_sent": notify_sent,
+            "notify_result": notify_result,
+            "notify_hook_configured": bool(args.notify_hook_url.strip()),
         },
         "train_summary": train_summary,
     }

@@ -140,6 +140,7 @@ Rollback behavior:
 - If the new model does not beat active model by required margin, promotion is skipped.
 - Use `--disable-rollback` to bypass checks.
 - Use `--force-promote` to promote regardless of metric comparison.
+- Use `--event-log` to append rollback/promotion events and `--notify-hook-url` + `--notify-on rollback` for webhook alerts.
 
 ### 3) RNN inference
 
@@ -186,8 +187,24 @@ Rollback behavior:
 ```bash
 /Users/peterchiu/stock_predict/.venv/bin/python models/generate_ab_monitoring_report.py \
   --input-glob "data/monitoring/ab_runs/report_*.json" \
-  --output data/monitoring/ab_report_daily.json
+  --eval-summary models/rnn_registry/last_retrain_summary.json \
+  --output data/monitoring/ab_report_daily.json \
+  --markdown-output data/monitoring/ab_report_daily.md \
+  --ratio-config models/rnn_registry/traffic_policy.json \
+  --write-ratio-config
 ```
+
+Outputs:
+
+- `ab_report_daily.json`: aggregated stats + daily metrics + 7/30 day trend datasets.
+- `ab_report_daily.md`: human-readable report with Mermaid trend charts.
+- `traffic_policy.json`: adaptive `rnn_ratio` policy consumed by AB inference.
+
+Adaptive traffic policy notes:
+
+- The next `rnn_ratio` is computed from both quality (accuracy from evaluation summary) and speed (7-day throughput).
+- Use `--weight-accuracy` and `--weight-throughput` to tune priorities.
+- Use `--max-ratio-step` to cap per-run ratio changes and avoid oscillation.
 
 ### 7) Cron templates
 
