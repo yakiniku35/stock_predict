@@ -64,6 +64,21 @@ python -m crawler.news_scraper \
 - `language`、`ticker`
 - `sentiment_score`、`sentiment_label`（第二階段填值）
 
+目前預設來源（可在 `crawler/news_sources.json` 調整）：
+
+- Yahoo 股市（HTML，抓標題與內文）
+- 鉅亨網（HTML，抓標題與內文）
+- Google News RSS（台股總覽、Yahoo、鉅亨、工商、經濟日報）
+
+若要新增來源，可使用以下欄位：
+
+- `type`: `rss` 或 `html`
+- `list_url`: 列表頁或 RSS 網址
+- `article_link_selector`: HTML 模式下抓文章連結
+- `title_selector` / `time_selector` / `content_selector`: 文章頁擷取規則
+- `article_link_include` / `article_link_exclude`: 連結白名單與黑名單（regex）
+- `rss_use_article_content`: RSS 是否進一步進文章頁抓完整內文
+
 ## 專案架構
 
 目前結構：

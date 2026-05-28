@@ -142,8 +142,16 @@ class NewsScraper:
 		content_nodes = article_soup.select(source.content_selector)
 
 		title = compact_text(title_node.get_text(" ")) if title_node else ""
+		if title in {"", "..."}:
+			og_title = article_soup.select_one("meta[property='og:title']")
+			if og_title and isinstance(og_title.get("content"), str):
+				title = compact_text(og_title.get("content"))
 		if time_node:
-			time_raw = compact_text(time_node.get("datetime") or time_node.get_text(" "))
+			dt_attr = time_node.get("datetime")
+			if isinstance(dt_attr, str):
+				time_raw = compact_text(dt_attr)
+			else:
+				time_raw = compact_text(time_node.get_text(" "))
 		else:
 			time_raw = ""
 		content = compact_text(" ".join(node.get_text(" ") for node in content_nodes))
@@ -231,7 +239,7 @@ class NewsScraper:
 		base_url = source.base_url or source.list_url
 		for anchor in anchors:
 			href = anchor.get("href")
-			if not href:
+			if not isinstance(href, str) or not href:
 				continue
 			links.append(urljoin(base_url, href))
 
