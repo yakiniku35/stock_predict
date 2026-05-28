@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-05-28T14:47:07.179234+00:00",
+  "input": "/Users/peterchiu/stock_predict/data/raw/news_latest.jsonl",
+  "records": 205,
+  "errors": 0,
+  "ab_config": {
+    "enabled": true,
+    "rnn_ratio": 0.412891,
+    "ratio_source": "config",
+    "ratio_config": "models/rnn_registry/traffic_policy.json",
+    "key_field": "id",
+    "salt": "stock_predict_ab_v1"
+  },
+  "arms": {
+    "rnn": {
+      "model": "bilstm_sentiment_v1",
+      "records": 87,
+      "errors": 0,
+      "seconds": 0.5904,
+      "records_per_second": 147.35,
+      "distribution": {
+        "positive": 27,
+        "neutral": 42,
+        "negative": 18
+      }
+    },
+    "lexicon": {
+      "model": "lexicon_baseline_v2",
+      "records": 118,
+      "errors": 0,
+      "seconds": 0.0049,
+      "records_per_second": 24071.14,
+      "distribution": {
+        "positive": 24,
+        "neutral": 84,
+        "negative": 10
+      }
+    }
+  }
+}

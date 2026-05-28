@@ -1,0 +1,30 @@
+{
+  "input": "/Users/peterchiu/stock_predict/data/raw/news_latest.jsonl",
+  "output": "/Users/peterchiu/stock_predict/data/normalized/news_with_sentiment_ab.jsonl",
+  "records": 205,
+  "bad_lines_skipped": 0,
+  "errors": 0,
+  "distribution": {
+    "positive": 49,
+    "neutral": 129,
+    "negative": 27
+  },
+  "thresholds": {
+    "positive": 0.2,
+    "negative": -0.2
+  },
+  "runtime": {
+    "execution_mode": "ab_hybrid",
+    "workers": 4,
+    "seconds": 11.2977,
+    "records_per_second": 18.15,
+    "model": "bilstm_sentiment_v1",
+    "is_rnn": "mixed"
+  },
+  "model_type": "ab",
+  "ab_test": {
+    "enabled": true,
+    "rnn_ratio": 0.35,
+    "report_output": "/Users/peterchiu/stock_predict/data/monitoring/ab_runs/report_smoke.json"
+  }
+}
