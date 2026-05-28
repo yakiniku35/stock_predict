@@ -168,12 +168,18 @@ def _load_eval_metrics(path: Path) -> dict:
         return {}
 
     evaluation = payload.get("evaluation", {})
-    candidate = evaluation.get("candidate", {}).get("metrics", {})
+    rollback = payload.get("rollback", {})
+    if rollback.get("promoted") is False:
+        rnn_metrics = evaluation.get("previous_active", {}).get("metrics", {})
+    else:
+        rnn_metrics = evaluation.get("candidate", {}).get("metrics", {})
+    if not rnn_metrics:
+        rnn_metrics = evaluation.get("candidate", {}).get("metrics", {})
     lexicon = evaluation.get("lexicon_baseline", {}).get("metrics", {})
 
     return {
-        "rnn_accuracy": _safe_float(candidate.get("accuracy", 0.0)),
-        "rnn_macro_f1": _safe_float(candidate.get("macro_f1", 0.0)),
+        "rnn_accuracy": _safe_float(rnn_metrics.get("accuracy", 0.0)),
+        "rnn_macro_f1": _safe_float(rnn_metrics.get("macro_f1", 0.0)),
         "lex_accuracy": _safe_float(lexicon.get("accuracy", 0.0)),
         "lex_macro_f1": _safe_float(lexicon.get("macro_f1", 0.0)),
     }
