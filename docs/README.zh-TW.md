@@ -38,6 +38,32 @@ pip install -r requirements.txt
 
 目前尚未提供後端與前端的啟動入口。待 `backend/`、`frontend/` 等模組加入後，請同步更新本段落的啟動指令。
 
+### 新聞爬蟲（第一階段已可執行）
+
+執行爬蟲並輸出結構化新聞 JSONL：
+
+```bash
+python -m crawler.news_scraper \
+  --config crawler/news_sources.json \
+  --output data/raw/news_latest.jsonl \
+  --ticker 2330 \
+  --max-articles 200
+```
+
+常用參數：
+
+- `--append`：追加寫入輸出檔案（預設覆寫）。
+- `--max-articles`：限制單次輸出筆數。
+- `--ticker`：寫入每筆新聞的預設股票代碼。
+
+輸出欄位（JSONL 每行一筆）：
+
+- `id`、`source`、`headline`、`content`、`url`
+- `published_at`（UTC ISO 格式）
+- `fetched_at`（UTC ISO 格式）
+- `language`、`ticker`
+- `sentiment_score`、`sentiment_label`（第二階段填值）
+
 ## 專案架構
 
 目前結構：
@@ -75,7 +101,7 @@ stock_predict/
 
 感謝所有貢獻者。
 
-[![](https://contrib.rocks/image?repo=yakiniku35/stock_predict)](https://github.com/yakiniku35/stock_predict/graphs/contributors)
+[![Contributors](https://contrib.rocks/image?repo=yakiniku35/stock_predict)](https://github.com/yakiniku35/stock_predict/graphs/contributors)
 
 ## 開發筆記
 

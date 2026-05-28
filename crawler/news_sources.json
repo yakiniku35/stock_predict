@@ -1,0 +1,56 @@
+{
+	"sources": [
+		{
+			"name": "google_news_taiwan_stock",
+			"type": "rss",
+			"enabled": true,
+			"list_url": "https://news.google.com/rss/search?q=%E5%8F%B0%E8%82%A1+OR+%E8%82%A1%E5%B8%82&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
+			"language": "zh-TW",
+			"timezone": "Asia/Taipei",
+			"max_items": 150,
+			"timeout_seconds": 20,
+			"retry_count": 2,
+			"rate_limit_seconds": 0.5,
+			"ticker_keywords": []
+		},
+		{
+			"name": "google_news_tsmc",
+			"type": "rss",
+			"enabled": true,
+			"list_url": "https://news.google.com/rss/search?q=2330+OR+%E5%8F%B0%E7%A9%8D%E9%9B%BB+OR+TSMC&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
+			"language": "zh-TW",
+			"timezone": "Asia/Taipei",
+			"max_items": 150,
+			"timeout_seconds": 20,
+			"retry_count": 2,
+			"rate_limit_seconds": 0.5,
+			"ticker_keywords": [
+				"2330",
+				"TSMC",
+				"台積電"
+			]
+		},
+        {
+            
+        },
+
+		{
+			"name": "example_html_source",
+			"type": "html",
+			"enabled": false,
+			"list_url": "https://example.com/finance",
+			"base_url": "https://example.com",
+			"language": "zh-TW",
+			"timezone": "Asia/Taipei",
+			"max_items": 50,
+			"timeout_seconds": 15,
+			"retry_count": 2,
+			"rate_limit_seconds": 1.0,
+			"article_link_selector": "article h2 a",
+			"title_selector": "article h1",
+			"time_selector": "time",
+			"content_selector": "article p",
+			"ticker_keywords": []
+		}
+	]
+}
