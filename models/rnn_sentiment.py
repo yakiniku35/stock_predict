@@ -69,6 +69,18 @@ def _has_artifacts(model_dir: Path) -> bool:
     return all((model_dir / filename).exists() for filename in ["model.keras", "tokenizer.json", "meta.json"])
 
 
+def _resolve_pointer_candidate(registry_dir: Path, active_dir: str) -> Path | None:
+    candidate = Path(active_dir)
+    if candidate.is_absolute():
+        return candidate if _has_artifacts(candidate) else None
+
+    for anchor in [registry_dir, *registry_dir.parents]:
+        resolved = (anchor / candidate).resolve()
+        if _has_artifacts(resolved):
+            return resolved
+    return None
+
+
 def resolve_model_dir(model_dir: Path) -> Path:
     model_dir = model_dir.resolve()
     if _has_artifacts(model_dir):
@@ -80,12 +92,10 @@ def resolve_model_dir(model_dir: Path) -> Path:
         active_dir = payload.get("active_model_dir")
         if not active_dir:
             raise FileNotFoundError(f"Invalid {ACTIVE_MODEL_FILE}: missing active_model_dir")
-        candidate = Path(active_dir)
-        if not candidate.is_absolute():
-            candidate = (model_dir / candidate).resolve()
-        if _has_artifacts(candidate):
+        candidate = _resolve_pointer_candidate(model_dir, str(active_dir))
+        if candidate is not None:
             return candidate
-        raise FileNotFoundError(f"Active model path has no artifacts: {candidate}")
+        raise FileNotFoundError(f"Active model path has no artifacts: {active_dir}")
 
     raise FileNotFoundError(
         f"No RNN artifacts found in {model_dir}. Provide artifact folder or registry with {ACTIVE_MODEL_FILE}."
