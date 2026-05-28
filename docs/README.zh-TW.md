@@ -149,3 +149,30 @@ stock_predict/
 ## 免責聲明
 
 本專案僅供研究與學習用途，不構成任何投資建議、財務建議或保證性預測結果。
+
+## 第二階段：情緒 Baseline（已可執行）
+
+先將第一階段輸出的新聞批次標註情緒：
+
+```bash
+/Users/peterchiu/stock_predict/.venv/bin/python models/run_sentiment_batch.py \
+  --input data/raw/news_latest.jsonl \
+  --output data/normalized/news_with_sentiment.jsonl \
+  --summary-output data/normalized/news_with_sentiment_summary.json
+```
+
+再將已標註情緒的新聞聚合為日級特徵：
+
+```bash
+/Users/peterchiu/stock_predict/.venv/bin/python models/build_daily_features.py \
+  --input data/normalized/news_with_sentiment.jsonl \
+  --output data/features/daily_sentiment_features.csv
+```
+
+第二階段輸出：
+
+- data/normalized/news_with_sentiment.jsonl
+- data/normalized/news_with_sentiment_summary.json
+- data/features/daily_sentiment_features.csv
+
+備註：目前為 baseline（詞典規則）版本，目標是先建立可重現、可驗證的端到端管線，後續可替換為 RNN/LSTM 或 transformer 模型。
