@@ -50,11 +50,29 @@ python -m crawler.news_scraper \
   --max-articles 200
 ```
 
+高新聞量模式（加速收斂、提高覆蓋）：
+
+```bash
+python -m crawler.news_scraper \
+  --config crawler/news_sources.json \
+  --output data/raw/news_latest.jsonl \
+  --ticker 2330 \
+  --query "台積電 台股" \
+  --max-articles 600 \
+  --per-source-max-items 80 \
+  --summary-output data/raw/news_latest_summary.json
+```
+
 常用參數：
 
 - `--append`：追加寫入輸出檔案（預設覆寫）。
 - `--max-articles`：限制單次輸出筆數。
 - `--ticker`：寫入每筆新聞的預設股票代碼。
+- `--query`：動態查詢字串，套用到支援 `{query}` / `{query_encoded}` 的來源。
+- `--keyword`：以逗號分隔的額外關鍵字，會合併到各來源過濾規則。
+- `--per-source-max-items`：限制每個來源最多抓取幾則，控制速度與來源平衡。
+- `--min-content-length`：內容最短長度門檻，避免雜訊短文。
+- `--summary-output`：輸出本次抓取統計報告 JSON。
 
 輸出欄位（JSONL 每行一筆）：
 
@@ -68,7 +86,9 @@ python -m crawler.news_scraper \
 
 - Yahoo 股市（HTML，抓標題與內文）
 - 鉅亨網（HTML，抓標題與內文）
-- Google News RSS（台股總覽、Yahoo、鉅亨、工商、經濟日報）
+- Yahoo 股市 RSS（抓連結後進文章補全內文）
+- Google News RSS（台股總覽、Yahoo、鉅亨、工商、經濟日報、MoneyDJ、CNA、SETN）
+- 動態來源（依 `--ticker`、`--query` 產生查詢）
 
 若要新增來源，可使用以下欄位：
 

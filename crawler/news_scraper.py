@@ -1,4 +1,5 @@
 import argparse
+import copy
 import hashlib
 import json
 import time
@@ -7,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import re
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -93,9 +94,15 @@ def make_record_id(url: str, headline: str, published_at: str | None) -> str:
 
 
 class NewsScraper:
-	def __init__(self, source_configs: list[SourceConfig], default_ticker: str | None = None):
+	def __init__(
+		self,
+		source_configs: list[SourceConfig],
+		default_ticker: str | None = None,
+		min_content_length: int = 30,
+	):
 		self.source_configs = source_configs
 		self.default_ticker = default_ticker
+		self.min_content_length = max(1, min_content_length)
 		self.session = requests.Session()
 		self.session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
 		self.seen_ids: set[str] = set()
@@ -124,7 +131,7 @@ class NewsScraper:
 			return False
 		if title.strip() in {"Yahoo股市", "Yahoo奇摩股市"}:
 			return False
-		return len(compact_text(content)) >= 30
+		return len(compact_text(content)) >= self.min_content_length
 
 	def _is_allowed_link(self, url: str, source: SourceConfig) -> bool:
 		includes = source.article_link_include or []
@@ -144,8 +151,10 @@ class NewsScraper:
 		title = compact_text(title_node.get_text(" ")) if title_node else ""
 		if title in {"", "..."}:
 			og_title = article_soup.select_one("meta[property='og:title']")
-			if og_title and isinstance(og_title.get("content"), str):
-				title = compact_text(og_title.get("content"))
+			if og_title:
+				og_content = og_title.get("content")
+				if isinstance(og_content, str):
+					title = compact_text(og_content)
 		if time_node:
 			dt_attr = time_node.get("datetime")
 			if isinstance(dt_attr, str):
@@ -358,6 +367,52 @@ def write_jsonl(records: list[NewsRecord], output_path: Path, append: bool = Fal
 			handle.write(json.dumps(asdict(record), ensure_ascii=False) + "\n")
 
 
+def write_summary(summary: dict[str, Any], output_path: Path) -> None:
+	output_path.parent.mkdir(parents=True, exist_ok=True)
+	output_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def apply_runtime_context(source_configs: list[SourceConfig], args: argparse.Namespace) -> list[SourceConfig]:
+	context = {
+		"ticker": args.ticker or "",
+		"query": args.query or "",
+		"query_encoded": quote(args.query or ""),
+	}
+
+	def fmt(value: str | None) -> str | None:
+		if value is None:
+			return None
+		try:
+			return value.format(**context)
+		except KeyError:
+			return value
+
+	runtime_sources: list[SourceConfig] = []
+	for source in source_configs:
+		updated = copy.deepcopy(source)
+		updated.name = fmt(updated.name) or updated.name
+		updated.list_url = fmt(updated.list_url) or updated.list_url
+		updated.base_url = fmt(updated.base_url)
+		if updated.ticker_keywords:
+			updated.ticker_keywords = [fmt(keyword) or keyword for keyword in updated.ticker_keywords]
+		if updated.article_link_include:
+			updated.article_link_include = [fmt(pattern) or pattern for pattern in updated.article_link_include]
+		if updated.article_link_exclude:
+			updated.article_link_exclude = [fmt(pattern) or pattern for pattern in updated.article_link_exclude]
+
+		if args.per_source_max_items > 0:
+			updated.max_items = min(updated.max_items, args.per_source_max_items)
+
+		if args.keyword:
+			extra_keywords = [kw.strip() for kw in args.keyword.split(",") if kw.strip()]
+			if extra_keywords:
+				updated.ticker_keywords = list(dict.fromkeys((updated.ticker_keywords or []) + extra_keywords))
+
+		runtime_sources.append(updated)
+
+	return runtime_sources
+
+
 def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description="Config-driven news scraper for stock sentiment pipeline.")
 	parser.add_argument(
@@ -379,15 +434,45 @@ def parse_args() -> argparse.Namespace:
 		help="Default stock ticker stored in each record.",
 	)
 	parser.add_argument(
+		"--query",
+		type=str,
+		default="",
+		help="Dynamic keyword used to format source URLs containing {query} or {query_encoded}.",
+	)
+	parser.add_argument(
+		"--keyword",
+		type=str,
+		default="",
+		help="Extra comma-separated keywords merged into all source filters.",
+	)
+	parser.add_argument(
 		"--max-articles",
 		type=int,
 		default=200,
 		help="Max number of records to keep in this run.",
 	)
 	parser.add_argument(
+		"--per-source-max-items",
+		type=int,
+		default=0,
+		help="Optional cap per source to speed up runtime and rebalance source coverage.",
+	)
+	parser.add_argument(
+		"--min-content-length",
+		type=int,
+		default=30,
+		help="Minimum content length for keeping an article.",
+	)
+	parser.add_argument(
 		"--append",
 		action="store_true",
 		help="Append to output file instead of overwrite.",
+	)
+	parser.add_argument(
+		"--summary-output",
+		type=Path,
+		default=Path("data/raw/news_latest_summary.json"),
+		help="Path to write run summary JSON.",
 	)
 	return parser.parse_args()
 
@@ -395,7 +480,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
 	args = parse_args()
 	source_configs = load_source_configs(args.config)
-	scraper = NewsScraper(source_configs=source_configs, default_ticker=args.ticker)
+	runtime_sources = apply_runtime_context(source_configs, args)
+	scraper = NewsScraper(
+		source_configs=runtime_sources,
+		default_ticker=args.ticker,
+		min_content_length=args.min_content_length,
+	)
 	records, summary = scraper.run()
 
 	if args.max_articles > 0:
@@ -406,8 +496,17 @@ def main() -> int:
 	overall = {
 		"output": str(args.output),
 		"records_written": len(records),
+		"runtime": {
+			"ticker": args.ticker,
+			"query": args.query,
+			"keyword": args.keyword,
+			"max_articles": args.max_articles,
+			"per_source_max_items": args.per_source_max_items,
+			"min_content_length": args.min_content_length,
+		},
 		"sources": summary,
 	}
+	write_summary(overall, args.summary_output)
 	print(json.dumps(overall, ensure_ascii=False, indent=2))
 	return 0
 
