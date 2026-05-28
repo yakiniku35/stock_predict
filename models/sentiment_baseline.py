@@ -120,6 +120,22 @@ INTENSIFIERS = [
     "significantly",
 ]
 
+UNCERTAINTY_TERMS = [
+    "但",
+    "然而",
+    "不過",
+    "仍",
+    "觀望",
+    "中性",
+    "持平",
+    "尚待",
+    "可能",
+    "potentially",
+    "however",
+    "but",
+    "uncertain",
+]
+
 
 @dataclass
 class SentimentResult:
@@ -140,11 +156,13 @@ class LexiconSentimentAnalyzer:
         negative_term_weights: dict[str, float] | None = None,
         negation_terms: list[str] | None = None,
         intensifiers: list[str] | None = None,
+        uncertainty_terms: list[str] | None = None,
     ) -> None:
         self.positive_terms = [t.lower() for t in (positive_terms or POSITIVE_TERMS)]
         self.negative_terms = [t.lower() for t in (negative_terms or NEGATIVE_TERMS)]
         self.negation_terms = [t.lower() for t in (negation_terms or NEGATION_TERMS)]
         self.intensifiers = [t.lower() for t in (intensifiers or INTENSIFIERS)]
+        self.uncertainty_terms = [t.lower() for t in (uncertainty_terms or UNCERTAINTY_TERMS)]
         self.positive_threshold = positive_threshold
         self.negative_threshold = negative_threshold
 
@@ -203,6 +221,29 @@ class LexiconSentimentAnalyzer:
         # Cap boost to avoid score explosion in long repetitive text.
         return min(1.25, 1.0 + (0.05 * boost_hits))
 
+    def _uncertainty_penalty(self, normalized: str) -> float:
+        hits = 0
+        for term in self.uncertainty_terms:
+            hits += normalized.count(term)
+        # More uncertainty terms -> shrink confidence toward neutral.
+        return max(0.75, 1.0 - (0.04 * hits))
+
+    def _conflict_penalty(self, pos_hits: float, neg_hits: float) -> float:
+        if pos_hits <= 0.0 or neg_hits <= 0.0:
+            return 1.0
+        low = min(pos_hits, neg_hits)
+        high = max(pos_hits, neg_hits)
+        ratio = low / max(1e-9, high)
+        # If both sides are strong (ratio close to 1), damp score toward neutral.
+        return max(0.7, 1.0 - (0.3 * ratio))
+
+    def _presence_hits(self, normalized: str, terms: list[str]) -> int:
+        hits = 0
+        for term in terms:
+            if term in normalized:
+                hits += 1
+        return hits
+
     def _score(self, normalized: str) -> float:
         pos_hits = self._weighted_hits(normalized, self.positive_terms, self.positive_term_weights)
         neg_hits = self._weighted_hits(normalized, self.negative_terms, self.negative_term_weights)
@@ -215,12 +256,17 @@ class LexiconSentimentAnalyzer:
         pos_hits *= intensity
         neg_hits *= intensity
 
+        uncertainty_penalty = self._uncertainty_penalty(normalized)
+        conflict_penalty = self._conflict_penalty(pos_hits, neg_hits)
+
         total_hits = pos_hits + neg_hits
 
         if total_hits == 0:
             return 0.0
 
         score = (pos_hits - neg_hits) / math.sqrt(total_hits)
+        score *= uncertainty_penalty
+        score *= conflict_penalty
         return max(-1.0, min(1.0, score))
 
     def _label(self, score: float) -> str:
@@ -235,6 +281,19 @@ class LexiconSentimentAnalyzer:
         if not normalized:
             return SentimentResult(score=0.0, label="neutral")
         score = round(self._score(normalized), 4)
+
+        # Final guardrail: mixed polarity + uncertainty should prefer neutral.
+        pos_presence = self._presence_hits(normalized, self.positive_terms)
+        neg_presence = self._presence_hits(normalized, self.negative_terms)
+        uncertainty_hits = self._presence_hits(normalized, self.uncertainty_terms)
+        if pos_presence > 0 and neg_presence > 0:
+            if uncertainty_hits > 0:
+                score = round(score * 0.35, 4)
+            elif abs(score) < 0.55:
+                score = round(score * 0.65, 4)
+        elif uncertainty_hits >= 2 and abs(score) < 0.7:
+            score = round(score * 0.6, 4)
+
         return SentimentResult(score=score, label=self._label(score))
 
     def predict_many(self, texts: Iterable[str]) -> list[SentimentResult]:
