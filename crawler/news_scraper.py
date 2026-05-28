@@ -390,6 +390,16 @@ def apply_runtime_context(source_configs: list[SourceConfig], args: argparse.Nam
 	runtime_sources: list[SourceConfig] = []
 	for source in source_configs:
 		updated = copy.deepcopy(source)
+		requires_ticker = any("{ticker}" in (val or "") for val in [source.name, source.list_url, source.base_url])
+		requires_query = any(
+			("{query}" in (val or "") or "{query_encoded}" in (val or ""))
+			for val in [source.name, source.list_url, source.base_url]
+		)
+		if requires_ticker and not args.ticker:
+			updated.enabled = False
+		if requires_query and not args.query:
+			updated.enabled = False
+
 		updated.name = fmt(updated.name) or updated.name
 		updated.list_url = fmt(updated.list_url) or updated.list_url
 		updated.base_url = fmt(updated.base_url)
