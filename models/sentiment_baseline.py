@@ -302,4 +302,3 @@ class LexiconSentimentAnalyzer:
         for text in texts:
             results.append(self.predict(text))
         return results
-
