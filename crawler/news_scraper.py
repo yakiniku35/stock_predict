@@ -403,7 +403,7 @@ def apply_runtime_context(source_configs: list[SourceConfig], args: argparse.Nam
 		if args.per_source_max_items > 0:
 			updated.max_items = min(updated.max_items, args.per_source_max_items)
 
-		if args.keyword:
+		if args.keyword and args.enforce_keyword_filter:
 			extra_keywords = [kw.strip() for kw in args.keyword.split(",") if kw.strip()]
 			if extra_keywords:
 				updated.ticker_keywords = list(dict.fromkeys((updated.ticker_keywords or []) + extra_keywords))
@@ -443,7 +443,12 @@ def parse_args() -> argparse.Namespace:
 		"--keyword",
 		type=str,
 		default="",
-		help="Extra comma-separated keywords merged into all source filters.",
+		help="Extra comma-separated keywords used when strict keyword filtering is enabled.",
+	)
+	parser.add_argument(
+		"--enforce-keyword-filter",
+		action="store_true",
+		help="Force all sources to apply --keyword filters (higher precision, lower volume).",
 	)
 	parser.add_argument(
 		"--max-articles",
@@ -500,6 +505,7 @@ def main() -> int:
 			"ticker": args.ticker,
 			"query": args.query,
 			"keyword": args.keyword,
+			"enforce_keyword_filter": args.enforce_keyword_filter,
 			"max_articles": args.max_articles,
 			"per_source_max_items": args.per_source_max_items,
 			"min_content_length": args.min_content_length,

@@ -69,7 +69,8 @@ python -m crawler.news_scraper \
 - `--max-articles`：限制單次輸出筆數。
 - `--ticker`：寫入每筆新聞的預設股票代碼。
 - `--query`：動態查詢字串，套用到支援 `{query}` / `{query_encoded}` 的來源。
-- `--keyword`：以逗號分隔的額外關鍵字，會合併到各來源過濾規則。
+- `--keyword`：以逗號分隔的額外關鍵字（搭配嚴格過濾時使用）。
+- `--enforce-keyword-filter`：強制所有來源套用 `--keyword`（精準度高、新聞量較低）。
 - `--per-source-max-items`：限制每個來源最多抓取幾則，控制速度與來源平衡。
 - `--min-content-length`：內容最短長度門檻，避免雜訊短文。
 - `--summary-output`：輸出本次抓取統計報告 JSON。
