@@ -4,13 +4,13 @@
 
 台股與美股走勢預測專案。目標是結合歷史行情、財務指標、新聞與社群情緒訊號，協助進行價格趨勢分析與視覺化呈現。
 
-> 專案狀態：早期骨架。目前 repository 主要包含文件與依賴檔案占位，尚未加入實際應用程式碼。
+> 專案狀態：已完成第一階段（多來源新聞爬蟲）與第二階段 baseline（情緒標註與時間桶特徵聚合）。目前重點是擴充模型品質與預測模組。
 
 ## 功能
 
 - 使用 [yfinance](https://github.com/ranaroussi/yfinance) 取得歷史股價與財務指標。
 - 透過爬蟲蒐集新聞、社群討論等輔助市場資訊。
-- 使用 RNN 類模型分析情緒訊號。
+- 目前使用詞典規則 baseline 分析情緒訊號（非 RNN），後續可替換為 RNN/LSTM 或 transformer。
 - 整合價格、指標與情緒特徵，預測股票價格走勢方向。
 - 使用 [Plotly](https://github.com/plotly/plotly.py) 呈現互動式圖表與分析結果。
 
@@ -27,7 +27,7 @@ cd stock_predict
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate
+source .venv/bin/activate
 ```
 
 安裝依賴：
@@ -152,27 +152,132 @@ stock_predict/
 
 ## 第二階段：情緒 Baseline（已可執行）
 
-先將第一階段輸出的新聞批次標註情緒：
+先將第一階段輸出的新聞批次標註情緒（可調整平行度）：
 
 ```bash
 /Users/peterchiu/stock_predict/.venv/bin/python models/run_sentiment_batch.py \
   --input data/raw/news_latest.jsonl \
   --output data/normalized/news_with_sentiment.jsonl \
-  --summary-output data/normalized/news_with_sentiment_summary.json
+  --summary-output data/normalized/news_with_sentiment_summary.json \
+  --workers 4
 ```
 
-再將已標註情緒的新聞聚合為日級特徵：
+再將已標註情緒的新聞聚合為時間桶特徵（可細到 15 分鐘）：
 
 ```bash
 /Users/peterchiu/stock_predict/.venv/bin/python models/build_daily_features.py \
   --input data/normalized/news_with_sentiment.jsonl \
-  --output data/features/daily_sentiment_features.csv
+  --output data/features/sentiment_features_hour.csv \
+  --timeframe hour \
+  --timezone Asia/Taipei
 ```
+
+可用時間粒度：
+
+- `--timeframe day`
+- `--timeframe hour`
+- `--timeframe 30min`
+- `--timeframe 15min`
+
+速度與模型狀態說明：
+
+- `models/run_sentiment_batch.py` 會在 summary 內輸出 `records_per_second`。
+- `--workers 0` 或 `1` 使用單批次模式，`--workers >= 2` 使用 thread pool。
+- `--model-type lexicon` 時 `runtime.is_rnn=false`；`--model-type rnn` 時 `runtime.is_rnn=true`。
 
 第二階段輸出：
 
 - data/normalized/news_with_sentiment.jsonl
 - data/normalized/news_with_sentiment_summary.json
-- data/features/daily_sentiment_features.csv
+- data/features/sentiment_features_hour.csv（或依 `--timeframe` 自訂檔名）
 
 備註：目前為 baseline（詞典規則）版本，目標是先建立可重現、可驗證的端到端管線，後續可替換為 RNN/LSTM 或 transformer 模型。
+
+## 第三階段：真 RNN/LSTM（訓練與推論）
+
+### 快準平衡部署策略（建議）
+
+- 線上即時：先用 lexicon 快速打分（延遲低、穩定高）。
+- 離線排程：定期重訓 RNN（例如每日或每週），追求準確度。
+- 權重切換：重訓完成後只更新 active model pointer，線上流程無需改程式即可切到最新權重。
+
+### 1) 訓練 BiLSTM 情緒模型
+
+若輸入資料已含 `sentiment_label`，可直接監督訓練；若沒有，預設會先用 lexicon 自動產生弱標籤再訓練。
+
+```bash
+/Users/peterchiu/stock_predict/.venv/bin/python models/train_rnn_sentiment.py \
+  --input data/normalized/news_with_sentiment.jsonl \
+  --output-dir models/artifacts/rnn_sentiment \
+  --summary-output models/artifacts/rnn_sentiment/train_summary.json \
+  --label-source auto \
+  --epochs 8 \
+  --batch-size 64 \
+  --max-len 256 \
+  --vocab-size 20000
+```
+
+若要「訓練完自動升級為最新權重」，可直接使用整合腳本：
+
+```bash
+/Users/peterchiu/stock_predict/.venv/bin/python models/retrain_rnn_and_promote.py \
+  --input data/normalized/news_with_sentiment.jsonl \
+  --registry-dir models/rnn_registry \
+  --label-source field \
+  --epochs 8 \
+  --batch-size 64 \
+  --summary-output models/rnn_registry/last_retrain_summary.json
+```
+
+### 2) 使用 RNN 模型做批次推論
+
+```bash
+/Users/peterchiu/stock_predict/.venv/bin/python models/predict_rnn_sentiment.py \
+  --input data/raw/news_latest.jsonl \
+  --output data/normalized/news_with_sentiment_rnn.jsonl \
+  --summary-output data/normalized/news_with_sentiment_rnn_summary.json \
+  --model-dir models/rnn_registry \
+  --batch-size 128
+```
+
+### 3) 透過同一條批次管線切換到 RNN
+
+`models/run_sentiment_batch.py` 現在支援 `--model-type rnn`，此時 summary 的 `runtime.is_rnn` 會是 `true`：
+
+```bash
+/Users/peterchiu/stock_predict/.venv/bin/python models/run_sentiment_batch.py \
+  --input data/raw/news_latest.jsonl \
+  --output data/normalized/news_with_sentiment.jsonl \
+  --summary-output data/normalized/news_with_sentiment_summary.json \
+  --model-type rnn \
+  --rnn-model-dir models/rnn_registry \
+  --rnn-batch-size 128
+```
+
+### 4) 線上 lexicon 即時打分（低延遲）
+
+```bash
+/Users/peterchiu/stock_predict/.venv/bin/python models/run_sentiment_batch.py \
+  --input data/raw/news_latest.jsonl \
+  --output data/normalized/news_with_sentiment_live.jsonl \
+  --summary-output data/normalized/news_with_sentiment_live_summary.json \
+  --model-type lexicon \
+  --workers 4
+```
+
+### 5) 手動切換 active RNN 權重（可選）
+
+當你有多個訓練版本時，可手動 promote 指定目錄：
+
+```bash
+/Users/peterchiu/stock_predict/.venv/bin/python models/promote_rnn_model.py \
+  --registry-dir models/rnn_registry \
+  --model-dir models/rnn_registry/runs/20260528_223500
+```
+
+快準建議（實務）
+
+- 先用 lexicon 版本快速標註新資料，再定期重訓 RNN（例如每天或每週）。
+- 推論時優先調整 `--rnn-batch-size`（例如 128、256）來換取更高吞吐。
+- 訓練時保留 EarlyStopping，搭配 `--epochs 6~12`，避免過擬合與浪費時間。
+- 若你有人工標註資料，建議 `--label-source field`，準確率通常會比弱標籤更好。

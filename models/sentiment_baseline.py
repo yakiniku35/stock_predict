@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Iterable
 
 POSITIVE_TERMS = [
     "上漲",
@@ -51,6 +52,8 @@ class SentimentResult:
 
 
 class LexiconSentimentAnalyzer:
+    model_name = "lexicon_baseline_v2"
+
     def __init__(
         self,
         positive_terms: list[str] | None = None,
@@ -63,26 +66,33 @@ class LexiconSentimentAnalyzer:
         self.positive_threshold = positive_threshold
         self.negative_threshold = negative_threshold
 
-    def predict(self, text: str) -> SentimentResult:
-        normalized = " ".join((text or "").split()).lower()
-        if not normalized:
-            return SentimentResult(score=0.0, label="neutral")
-
+    def _score(self, normalized: str) -> float:
         pos_hits = sum(normalized.count(term) for term in self.positive_terms)
         neg_hits = sum(normalized.count(term) for term in self.negative_terms)
         total_hits = pos_hits + neg_hits
 
         if total_hits == 0:
-            score = 0.0
-        else:
-            score = (pos_hits - neg_hits) / math.sqrt(total_hits)
-            score = max(-1.0, min(1.0, score))
+            return 0.0
 
+        score = (pos_hits - neg_hits) / math.sqrt(total_hits)
+        return max(-1.0, min(1.0, score))
+
+    def _label(self, score: float) -> str:
         if score >= self.positive_threshold:
-            label = "positive"
-        elif score <= self.negative_threshold:
-            label = "negative"
-        else:
-            label = "neutral"
+            return "positive"
+        if score <= self.negative_threshold:
+            return "negative"
+        return "neutral"
 
-        return SentimentResult(score=round(score, 4), label=label)
+    def predict(self, text: str) -> SentimentResult:
+        normalized = " ".join((text or "").split()).lower()
+        if not normalized:
+            return SentimentResult(score=0.0, label="neutral")
+        score = round(self._score(normalized), 4)
+        return SentimentResult(score=score, label=self._label(score))
+
+    def predict_many(self, texts: Iterable[str]) -> list[SentimentResult]:
+        results: list[SentimentResult] = []
+        for text in texts:
+            results.append(self.predict(text))
+        return results
