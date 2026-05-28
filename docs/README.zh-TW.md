@@ -10,7 +10,7 @@
 
 - 使用 [yfinance](https://github.com/ranaroussi/yfinance) 取得歷史股價與財務指標。
 - 透過爬蟲蒐集新聞、社群討論等輔助市場資訊。
-- 目前使用詞典規則 baseline 分析情緒訊號（非 RNN），後續可替換為 RNN/LSTM 或 transformer。
+- 提供詞典規則 baseline，並已支援 RNN/LSTM 情緒模型的訓練與推論流程；後續可再擴充 transformer。
 - 整合價格、指標與情緒特徵，預測股票價格走勢方向。
 - 使用 [Plotly](https://github.com/plotly/plotly.py) 呈現互動式圖表與分析結果。
 
