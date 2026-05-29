@@ -1,6 +1,6 @@
 # Stock Predict
 
-[繁體中文](README.zh-TW.md)
+[繁體中文](docs/README.zh-TW.md)
 
 A stock trend prediction project for Taiwan and U.S. markets. The goal is to combine historical market data, financial indicators, and news or social sentiment signals to support price trend analysis and visualization.
 
