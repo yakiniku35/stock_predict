@@ -290,6 +290,7 @@ def main() -> int:
     args = parse_args()
     base = Path(".")
     files = sorted(base.glob(args.input_glob))
+    skipped_files: list[dict[str, str]] = []
 
     total_runs = 0
     total_records = 0
@@ -309,7 +310,11 @@ def main() -> int:
     daily: dict[str, dict] = {}
 
     for path in files:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            skipped_files.append({"path": str(path), "reason": str(exc)})
+            continue
         arms = payload.get("arms", {})
 
         total_runs += 1
@@ -391,6 +396,8 @@ def main() -> int:
 
     summary = {
         "input_glob": args.input_glob,
+        "input_files": len(files),
+        "skipped_files": skipped_files,
         "runs": total_runs,
         "records": total_records,
         "errors": total_errors,
