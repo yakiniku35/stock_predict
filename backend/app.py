@@ -63,4 +63,4 @@ def health_check():
 
 if __name__ == "__main__":
     # 啟動後端本地伺服器，預設 Port 5000
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False)
