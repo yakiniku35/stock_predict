@@ -805,7 +805,7 @@ class Handler(BaseHTTPRequestHandler):
             params = parse_qs(parsed.query)
             ticker = (params.get("ticker", ["2330"])[0] or "2330").strip()
             query = (params.get("query", [""])[0] or ticker).strip()
-            model_type = (params.get("model_type", ["lexicon"])[0] or "lexicon").strip().lower()
+            model_type = (params.get("model_type", ["rnn"])[0] or "rnn").strip().lower()
             try:
                 max_articles = int(params.get("max_articles", ["100"])[0])
             except ValueError:
