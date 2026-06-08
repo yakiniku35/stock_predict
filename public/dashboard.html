@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StockSense - 智能股票分析</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>📈 StockSense</h1>
+        <p>智能股票分析 • 新聞情緒 • 價格走勢</p>
+    </div>
+
+    <div class="container">
+        <!-- 搜尋區 -->
+        <div class="search-section">
+            <form class="search-form" onsubmit="searchStock(event)">
+                <div class="input-group">
+                    <label for="ticker">股票代碼</label>
+                    <input type="text" id="ticker" placeholder="例如: 2330, AAPL, TSLA" required value="2330">
+                </div>
+                <div class="input-group">
+                    <label for="period">時間範圍</label>
+                    <select id="period">
+                        <option value="1mo" selected>1 個月</option>
+                        <option value="3mo">3 個月</option>
+                        <option value="6mo">6 個月</option>
+                        <option value="1y">1 年</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="maxArticles">新聞數量</label>
+                    <input type="number" id="maxArticles" value="50" min="10" max="100">
+                </div>
+                <button type="submit" class="btn-search" id="searchBtn">
+                    🔍 分析
+                </button>
+            </form>
+        </div>
+
+        <!-- 統計卡片 -->
+        <div class="stats-grid" id="statsGrid" style="display: none;">
+            <div class="stat-card">
+                <div class="stat-label">新聞總數</div>
+                <div class="stat-value" id="newsCount">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">平均情緒</div>
+                <div class="stat-value" id="avgSentiment">0.00</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">股價資料點</div>
+                <div class="stat-value" id="pricePoints">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">最新股價</div>
+                <div class="stat-value" id="latestPrice">--</div>
+            </div>
+        </div>
+
+        <!-- 情緒分析總覽 -->
+        <div class="sentiment-card" id="sentimentCard" style="display: none;">
+            <div class="card-title">💭 新聞情緒分析</div>
+            <div class="sentiment-grid">
+                <div class="sentiment-item sentiment-positive">
+                    <div class="sentiment-percent" id="positivePercent">0%</div>
+                    <div class="sentiment-label">正面</div>
+                </div>
+                <div class="sentiment-item sentiment-neutral">
+                    <div class="sentiment-percent" id="neutralPercent">0%</div>
+                    <div class="sentiment-label">中立</div>
+                </div>
+                <div class="sentiment-item sentiment-negative">
+                    <div class="sentiment-percent" id="negativePercent">0%</div>
+                    <div class="sentiment-label">負面</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 主要內容 -->
+        <div class="content-grid">
+            <!-- 股價圖表 -->
+            <div class="card">
+                <div class="card-title">📊 股價走勢</div>
+                <div class="chart-container">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 新聞列表 -->
+            <div class="card">
+                <div class="card-title">📰 相關新聞</div>
+                <div class="news-list" id="newsList">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔍</div>
+                        <p>輸入股票代碼開始分析</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="./app.js"></script>
+</body>
+</html>
