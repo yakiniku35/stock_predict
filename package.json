@@ -1,0 +1,12 @@
+{
+  "name": "stock-predict",
+  "version": "1.0.0",
+  "description": "StockSense - 股票情緒分析與預測系統",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "keywords": ["stock", "prediction", "sentiment-analysis"],
+  "author": "Your Name",
+  "license": "MIT"
+}
