@@ -16,6 +16,7 @@ data/features/*
 data/monitoring/*
 data/runtime/*
 !data/*/.gitkeep
+frontend/data/
 
 # Models
 models/artifacts/*

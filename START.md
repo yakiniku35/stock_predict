@@ -39,27 +39,12 @@ python3 -m http.server 8000
 http://localhost:8000/dashboard.html
 ```
 
-**選項 B - 測試頁面**
-```
-http://localhost:8000/demo.html
-```
-
-**選項 C - 本地原生服務**
+**選項 B - 本地原生服務**
 ```
 http://127.0.0.1:8501
 ```
 
 ## 🧪 測試步驟
-
-### 使用 Demo 頁面測試
-
-1. 訪問 `http://localhost:8000/demo.html`
-2. 點擊「抓取台積電新聞」
-3. 等待 5-10 秒
-4. 查看結果：
-   - 統計資料（新聞數、情緒分數）
-   - 新聞列表（含情緒標籤）
-   - 原始 JSON 資料
 
 ### 使用專業儀表板
 
@@ -224,8 +209,8 @@ cat data/features/sentiment_features_hour.csv
 
 ---
 
-📖 詳細指南：DASHBOARD-GUIDE.md
-🔧 部署說明：DEPLOYMENT-SUCCESS.md
+📖 詳細指南：docs/archive/DASHBOARD-GUIDE.md
+🔧 部署說明：docs/archive/DEPLOYMENT-SUCCESS.md
 🐛 問題回報：開 issue
 
 Made with ❤️ by StockSense
