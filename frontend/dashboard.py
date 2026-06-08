@@ -149,9 +149,7 @@ HTML = """<!doctype html>
         </label>
         <label>情緒模型
           <select id="modelType" name="model_type">
-            <option value="rnn" selected>RNN</option>
-            <option value="lexicon">Lexicon</option>
-            <option value="ab">AB (RNN+Lexicon)</option>
+            <option value="lexicon" selected>詞彙分析</option>
           </select>
         </label>
         <button id="searchButton" type="submit">搜尋</button>
@@ -634,7 +632,7 @@ def reset_pipeline_outputs() -> None:
 
 
 def _build_sentiment_command(model_type: str) -> list[str]:
-  base = [
+  return [
     sys.executable,
     "models/run_sentiment_batch.py",
     "--input",
@@ -645,33 +643,14 @@ def _build_sentiment_command(model_type: str) -> list[str]:
     str(NORMALIZED_SUMMARY.relative_to(ROOT)),
     "--workers",
     "4",
+    "--model-type",
+    "lexicon",
   ]
-
-  if model_type == "rnn":
-    return base + [
-      "--model-type",
-      "rnn",
-      "--rnn-model-dir",
-      "models/rnn_registry",
-      "--rnn-batch-size",
-      "128",
-    ]
-  if model_type == "ab":
-    return base + [
-      "--ab-enabled",
-      "--ab-rnn-ratio",
-      "0.35",
-      "--rnn-model-dir",
-      "models/rnn_registry",
-      "--rnn-batch-size",
-      "128",
-    ]
-  return base + ["--model-type", "lexicon"]
 
 
 def run_pipeline(ticker: str, query: str, max_articles: int, model_type: str) -> dict:
   max_articles = min(100, max(10, max_articles))
-  model_type = model_type if model_type in {"lexicon", "rnn", "ab"} else "rnn"
+  model_type = "lexicon"
     per_source = max_articles
     search_query = " ".join(part for part in [ticker, query] if part).strip() or query or ticker
     reset_pipeline_outputs()
@@ -723,9 +702,8 @@ def run_pipeline(ticker: str, query: str, max_articles: int, model_type: str) ->
             }
         )
 
-    sentiment_command = _build_sentiment_command(model_type)
     commands = [
-      sentiment_command,
+        _build_sentiment_command(model_type),
         [
             sys.executable,
             "models/build_daily_features.py",
@@ -739,21 +717,12 @@ def run_pipeline(ticker: str, query: str, max_articles: int, model_type: str) ->
             "Asia/Taipei",
         ],
     ]
-    effective_model = model_type
-    for index, command in enumerate(commands):
+    for command in commands:
         result = run_command(command)
         logs.append(result)
         if result["returncode"] != 0:
-        # RNN/AB failure fallback to lexicon so the page remains usable.
-        if index == 0 and model_type in {"rnn", "ab"}:
-          fallback_command = _build_sentiment_command("lexicon")
-          fallback_result = run_command(fallback_command)
-          logs.append(fallback_result)
-          if fallback_result["returncode"] == 0:
-            effective_model = "lexicon_fallback"
-            continue
             raise RuntimeError(
-                "原始 pipeline 執行失敗\n\n"
+                "Pipeline 執行失敗\n\n"
                 f"指令: {' '.join(command)}\n\n"
                 f"輸出:\n{result['stdout']}\n\n"
                 f"錯誤:\n{result['stderr']}"
@@ -767,8 +736,7 @@ def run_pipeline(ticker: str, query: str, max_articles: int, model_type: str) ->
             "query": query,
             "search_query": search_query,
             "requested_articles": max_articles,
-        "model_type": model_type,
-        "model_used": effective_model,
+            "model_type": "lexicon",
         }
     )
     return {
