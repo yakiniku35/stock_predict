@@ -632,25 +632,25 @@ def reset_pipeline_outputs() -> None:
 
 
 def _build_sentiment_command(model_type: str) -> list[str]:
-  return [
-    sys.executable,
-    "models/run_sentiment_batch.py",
-    "--input",
-    str(RAW_NEWS.relative_to(ROOT)),
-    "--output",
-    str(NORMALIZED_NEWS.relative_to(ROOT)),
-    "--summary-output",
-    str(NORMALIZED_SUMMARY.relative_to(ROOT)),
-    "--workers",
-    "4",
-    "--model-type",
-    "lexicon",
-  ]
+    return [
+        sys.executable,
+        "models/run_sentiment_batch.py",
+        "--input",
+        str(RAW_NEWS.relative_to(ROOT)),
+        "--output",
+        str(NORMALIZED_NEWS.relative_to(ROOT)),
+        "--summary-output",
+        str(NORMALIZED_SUMMARY.relative_to(ROOT)),
+        "--workers",
+        "4",
+        "--model-type",
+        "lexicon",
+    ]
 
 
 def run_pipeline(ticker: str, query: str, max_articles: int, model_type: str) -> dict:
-  max_articles = min(100, max(10, max_articles))
-  model_type = "lexicon"
+    max_articles = min(100, max(10, max_articles))
+    model_type = "lexicon"
     per_source = max_articles
     search_query = " ".join(part for part in [ticker, query] if part).strip() or query or ticker
     reset_pipeline_outputs()
