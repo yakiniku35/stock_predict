@@ -22,6 +22,7 @@ NORMALIZED_NEWS = ROOT / "data" / "normalized" / "news_with_sentiment.jsonl"
 NORMALIZED_SUMMARY = ROOT / "data" / "normalized" / "news_with_sentiment_summary.json"
 FEATURES = ROOT / "data" / "features" / "sentiment_features_hour.csv"
 RUNTIME_CONFIG = ROOT / "data" / "runtime" / "news_sources_search.json"
+RNN_MODEL_DIR = ROOT / "models" / "artifacts" / "rnn_sentiment"
 PORT = 8501
 
 
@@ -150,7 +151,8 @@ HTML = """<!doctype html>
         </label>
         <label>情緒模型
           <select id="modelType" name="model_type">
-            <option value="lexicon" selected>詞彙分析</option>
+            <option value="rnn" selected>RNN / BiLSTM</option>
+            <option value="lexicon">詞彙分析</option>
           </select>
         </label>
         <button id="searchButton" type="submit">搜尋</button>
@@ -633,7 +635,7 @@ def reset_pipeline_outputs() -> None:
 
 
 def _build_sentiment_command(model_type: str) -> list[str]:
-    return [
+    command = [
         sys.executable,
         "models/run_sentiment_batch.py",
         "--input",
@@ -645,8 +647,18 @@ def _build_sentiment_command(model_type: str) -> list[str]:
         "--workers",
         "4",
         "--model-type",
-        "lexicon",
+        model_type,
     ]
+    if model_type == "rnn":
+        command.extend(
+            [
+                "--rnn-model-dir",
+                str(RNN_MODEL_DIR.relative_to(ROOT)),
+                "--rnn-batch-size",
+                "64",
+            ]
+        )
+    return command
 
 
 def run_pipeline(ticker: str, query: str, max_articles: int, model_type: str) -> dict:
@@ -664,7 +676,7 @@ def run_pipeline(ticker: str, query: str, max_articles: int, model_type: str) ->
         return cleaned
 
     max_articles = min(100, max(10, max_articles))
-    model_type = "lexicon"
+    model_type = "rnn" if model_type == "rnn" else "lexicon"
     per_source = max_articles
     safe_ticker = _sanitize_ticker(ticker)
     safe_query = _sanitize_query(query)
@@ -752,7 +764,8 @@ def run_pipeline(ticker: str, query: str, max_articles: int, model_type: str) ->
             "query": query,
             "search_query": search_query,
             "requested_articles": max_articles,
-            "model_type": "lexicon",
+            "model_type": model_type,
+            "model_used": model_type,
         }
     )
     return {
