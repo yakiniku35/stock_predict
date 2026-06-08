@@ -3,41 +3,294 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="0; url=./dashboard.html">
-    <title>StockSense - 載入中...</title>
+    <title>StockSense</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
         body {
-            font-family: sans-serif;
+            font-family: -apple-system, system-ui, sans-serif;
+            background: #000;
+            color: #fff;
+            line-height: 1.5;
+        }
+        
+        .header {
+            background: #111;
+            border-bottom: 1px solid #222;
+            padding: 1rem 2rem;
             display: flex;
-            justify-content: center;
+            justify-content: space-between;
             align-items: center;
-            height: 100vh;
-            margin: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
         }
+        
+        .logo { font-size: 1.5rem; font-weight: 700; }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .search-bar {
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            display: grid;
+            grid-template-columns: 2fr 1fr auto;
+            gap: 1rem;
+        }
+        
+        input, select, button {
+            background: #000;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 0.75rem 1rem;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #0ea5e9;
+        }
+        
+        button {
+            background: #0ea5e9;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        
+        button:hover { background: #0284c7; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .card {
+            background: #111;
+            border: 1px solid #222;
+            border-radius: 8px;
+            padding: 1.5rem;
+        }
+        
+        .card-title {
+            font-size: 0.875rem;
+            color: #888;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .card-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+        
+        .card-change {
+            font-size: 0.875rem;
+        }
+        
+        .positive { color: #10b981; }
+        .negative { color: #ef4444; }
+        
+        .chart-card {
+            background: #111;
+            border: 1px solid #222;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid #222;
+        }
+        
+        .chart-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .tab {
+            padding: 0.5rem 1rem;
+            background: #000;
+            border: 1px solid #333;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+        }
+        
+        .tab.active {
+            background: #0ea5e9;
+            border-color: #0ea5e9;
+        }
+        
+        .news-item {
+            padding: 1rem;
+            border-bottom: 1px solid #222;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .news-item:hover {
+            background: #0a0a0a;
+        }
+        
+        .news-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        
+        .news-meta {
+            font-size: 0.875rem;
+            color: #888;
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .badge.pos { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+        .badge.neu { background: rgba(136, 136, 136, 0.1); color: #888; }
+        .badge.neg { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+        
         .loading {
-            text-align: center;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
         }
+        
+        .loading.active { display: flex; }
+        
         .spinner {
-            border: 4px solid rgba(255, 255, 255, 0.3);
-            border-top-color: white;
+            border: 3px solid #333;
+            border-top-color: #0ea5e9;
             border-radius: 50%;
-            width: 50px;
-            height: 50px;
+            width: 48px;
+            height: 48px;
             animation: spin 1s linear infinite;
-            margin: 0 auto 1rem;
         }
+        
         @keyframes spin {
             to { transform: rotate(360deg); }
+        }
+        
+        @media (max-width: 768px) {
+            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+            .search-bar { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
-    <div class="loading">
-        <div class="spinner"></div>
-        <h2>正在載入 StockSense...</h2>
-        <p>如果沒有自動跳轉，請<a href="./dashboard.html" style="color: white;">點擊這裡</a></p>
+    <div class="header">
+        <div class="logo">StockSense</div>
+        <div style="font-size: 0.875rem; color: #888;">即時股票分析</div>
     </div>
+
+    <div class="container">
+        <div class="search-bar">
+            <input type="text" id="ticker" placeholder="股票代碼 (例: 2330, AAPL)" value="2330">
+            <select id="period">
+                <option value="1mo">1個月</option>
+                <option value="3mo" selected>3個月</option>
+                <option value="6mo">6個月</option>
+                <option value="1y">1年</option>
+            </select>
+            <button onclick="analyze()" id="btn">分析</button>
+        </div>
+
+        <div class="grid-3">
+            <div class="card">
+                <div class="card-title">最新價格</div>
+                <div class="card-value" id="price">--</div>
+                <div class="card-change" id="priceChange">--</div>
+            </div>
+            <div class="card">
+                <div class="card-title">新聞情緒</div>
+                <div class="card-value" id="sentiment">--</div>
+                <div class="card-change" id="sentimentText">--</div>
+            </div>
+            <div class="card">
+                <div class="card-title">RSI</div>
+                <div class="card-value" id="rsi">--</div>
+                <div class="card-change" id="rsiText">--</div>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <div class="chart-header">
+                <div class="chart-title">股價走勢</div>
+                <div class="tabs">
+                    <div class="tab active" onclick="switchChart('price')">價格</div>
+                    <div class="tab" onclick="switchChart('macd')">MACD</div>
+                    <div class="tab" onclick="switchChart('rsi')">RSI</div>
+                    <div class="tab" onclick="switchChart('kd')">KD</div>
+                </div>
+            </div>
+            <div id="mainChart" style="height: 400px;"></div>
+        </div>
+
+        <div class="grid-2">
+            <div class="chart-card">
+                <div class="chart-header">
+                    <div class="chart-title">技術指標</div>
+                </div>
+                <div id="indChart" style="height: 300px;"></div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-header">
+                    <div class="chart-title">新聞動態</div>
+                </div>
+                <div id="newsList" style="max-height: 300px; overflow-y: auto;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading" id="loading">
+        <div style="text-align: center;">
+            <div class="spinner"></div>
+            <div style="margin-top: 1rem;">分析中...</div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
 </body>
 </html>
