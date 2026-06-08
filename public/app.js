@@ -2,8 +2,8 @@ let currentData = null;
 let currentChart = 'price';
 
 const API = {
-    stock: 'https://stock-predict-azure.vercel.app/api/stock_insight',
-    news: 'http://127.0.0.1:8501/api/search'
+    stock: '/api/stock_insight',
+    news: '/api/search'
 };
 
 async function analyze() {
@@ -49,12 +49,12 @@ async function fetchStock(ticker, period) {
 
 async function fetchNews(ticker, max) {
     try {
-        const res = await fetch(`${API.news}?ticker=${ticker}&max_articles=${max}`);
+        const res = await fetch(`${API.news}?ticker=${encodeURIComponent(ticker)}&max_articles=${max}&model_type=rnn`);
         if (!res.ok) throw new Error('新聞服務未啟動');
         return await res.json();
     } catch (e) {
         console.warn('News unavailable:', e);
-        return { summary: { records: 0, score_mean: 0 }, news: [] };
+        return { summary: { records: 0, score_mean: 0, model_used: 'none', model_status: 'unavailable' }, news: [] };
     }
 }
 
@@ -200,7 +200,11 @@ function render({ ticker, stockData, newsData }) {
     const sentiment = newsData.summary?.score_mean || 0;
     document.getElementById('sentiment').textContent = sentiment.toFixed(2);
     const sentimentTextEl = document.getElementById('sentimentText');
-    sentimentTextEl.textContent = sentiment > 0.1 ? '偏正面' : sentiment < -0.1 ? '偏負面' : '中立';
+    const modelUsed = newsData.summary?.model_used || 'unknown';
+    const modelStatus = newsData.summary?.model_status || 'unknown';
+    const sentimentLabel = sentiment > 0.1 ? '偏正面' : sentiment < -0.1 ? '偏負面' : '中立';
+    sentimentTextEl.textContent = `${sentimentLabel} · ${modelUsed}${modelStatus === 'ok' ? '' : ' fallback'}`;
+    sentimentTextEl.title = newsData.summary?.model_error || modelStatus;
     sentimentTextEl.className = `card-change ${sentiment > 0.1 ? 'positive' : sentiment < -0.1 ? 'negative' : ''}`;
     
     // RSI
@@ -306,6 +310,7 @@ function renderNews(news) {
         const sentiment = item.sentiment_label;
         const badgeClass = sentiment === 'positive' ? 'pos' : sentiment === 'negative' ? 'neg' : 'neu';
         const badgeText = sentiment === 'positive' ? '正面' : sentiment === 'negative' ? '負面' : '中立';
+        const modelText = item.sentiment_model === 'rnn' ? 'RNN' : 'Lexicon';
         
         return `
             <div class="news-item" onclick="window.open('${item.url}', '_blank')">
@@ -313,6 +318,7 @@ function renderNews(news) {
                 <div class="news-meta">
                     <span>${item.source}</span>
                     <span class="badge ${badgeClass}">${badgeText}</span>
+                    <span>${modelText}</span>
                 </div>
             </div>
         `;

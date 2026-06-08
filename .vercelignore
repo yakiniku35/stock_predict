@@ -6,7 +6,6 @@ __pycache__
 .github
 archive/
 data/
-models/artifacts/
 models/rnn_artifacts/
 models/rnn_registry/
 frontend/data/

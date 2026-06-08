@@ -20,6 +20,12 @@ frontend/data/
 
 # Models
 models/artifacts/*
+!models/artifacts/rnn_sentiment/
+!models/artifacts/rnn_sentiment/**
+!models/artifacts/rnn_sentiment/model.keras
+!models/artifacts/rnn_sentiment/tokenizer.json
+!models/artifacts/rnn_sentiment/meta.json
+!models/artifacts/rnn_sentiment/train_summary.json
 models/rnn_artifacts/*
 models/rnn_registry/*
 !models/artifacts/.gitkeep

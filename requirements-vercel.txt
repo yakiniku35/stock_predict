@@ -7,3 +7,4 @@ requests>=2.32.3
 python-dateutil>=2.9.0.post0
 beautifulsoup4>=4.12.3
 lxml>=5.2.2
+tensorflow-cpu>=2.16.2,<2.17.0
