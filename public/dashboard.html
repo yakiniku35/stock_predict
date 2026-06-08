@@ -3,102 +3,701 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StockSense - 智能股票分析</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <link rel="stylesheet" href="./style.css">
+    <title>StockSense - 股票分析平台</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0f1e;
+            --bg-secondary: #141b2d;
+            --bg-card: #1a2332;
+            --border-color: #2d3748;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Navbar */
+        .navbar {
+            background: rgba(26, 35, 50, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .nav-container {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 64px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .nav-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.938rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-link:hover {
+            color: var(--text-primary);
+        }
+
+        /* Main Container */
+        .container {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Search Section */
+        .search-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .search-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 120px;
+            gap: 1rem;
+            align-items: end;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .form-label {
+            font-size: 0.813rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-input,
+        .form-select {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            color: var(--text-primary);
+            font-size: 0.938rem;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s;
+        }
+
+        .form-input:focus,
+        .form-select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            background: var(--bg-primary);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            border: none;
+            border-radius: 8px;
+            padding: 0.75rem 1.5rem;
+            color: white;
+            font-weight: 600;
+            font-size: 0.938rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(180deg, var(--accent-blue), var(--accent-cyan));
+        }
+
+        .stat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .stat-label {
+            font-size: 0.813rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-icon {
+            width: 32px;
+            height: 32px;
+            background: rgba(59, 130, 246, 0.1);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.125rem;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1;
+        }
+
+        .stat-change {
+            font-size: 0.813rem;
+            margin-top: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .stat-change.positive {
+            color: var(--success);
+        }
+
+        .stat-change.negative {
+            color: var(--danger);
+        }
+
+        /* Chart Section */
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-icon {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-icon:hover {
+            background: var(--bg-primary);
+            border-color: var(--accent-blue);
+        }
+
+        /* Sentiment Analysis */
+        .sentiment-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .sentiment-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .sentiment-item::before {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+        }
+
+        .sentiment-item.positive::before {
+            background: var(--success);
+        }
+
+        .sentiment-item.neutral::before {
+            background: var(--text-secondary);
+        }
+
+        .sentiment-item.negative::before {
+            background: var(--danger);
+        }
+
+        .sentiment-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .sentiment-item.positive .sentiment-value {
+            color: var(--success);
+        }
+
+        .sentiment-item.neutral .sentiment-value {
+            color: var(--text-secondary);
+        }
+
+        .sentiment-item.negative .sentiment-value {
+            color: var(--danger);
+        }
+
+        .sentiment-label {
+            font-size: 0.813rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* News Feed */
+        .news-feed {
+            max-height: 600px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        .news-feed::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .news-feed::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+            border-radius: 3px;
+        }
+
+        .news-feed::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        .news-feed::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        .news-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .news-item:hover {
+            background: var(--bg-primary);
+            border-color: var(--accent-blue);
+            transform: translateX(2px);
+        }
+
+        .news-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .news-title {
+            font-size: 0.938rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            line-height: 1.4;
+            flex: 1;
+        }
+
+        .news-title a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .news-title a:hover {
+            color: var(--accent-cyan);
+        }
+
+        .sentiment-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .sentiment-badge.positive {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .sentiment-badge.neutral {
+            background: rgba(148, 163, 184, 0.1);
+            color: var(--text-secondary);
+        }
+
+        .sentiment-badge.negative {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+
+        .news-meta {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            font-size: 0.813rem;
+            color: var(--text-secondary);
+        }
+
+        .news-source {
+            font-weight: 500;
+        }
+
+        /* Loading State */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(10, 15, 30, 0.95);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .loading-content {
+            text-align: center;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 1rem;
+            color: var(--text-secondary);
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+        }
+
+        .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        .empty-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .empty-text {
+            font-size: 0.938rem;
+            color: var(--text-secondary);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .chart-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .search-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .sentiment-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .nav-links {
+                display: none;
+            }
+        }
+    </style>
 </head>
 <body>
-    <div class="header">
-        <h1>📈 StockSense</h1>
-        <p>智能股票分析 • 新聞情緒 • 價格走勢</p>
-    </div>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="#" class="logo">
+                <div class="logo-icon">📊</div>
+                <span>StockSense</span>
+            </a>
+            <div class="nav-links">
+                <a href="#" class="nav-link">儀表板</a>
+                <a href="#" class="nav-link">市場</a>
+                <a href="#" class="nav-link">新聞</a>
+                <a href="https://stock-predict-azure.vercel.app/api/health" class="nav-link" target="_blank">API</a>
+            </div>
+        </div>
+    </nav>
 
+    <!-- Main Container -->
     <div class="container">
-        <!-- 搜尋區 -->
+        <!-- Search Section -->
         <div class="search-section">
-            <form class="search-form" onsubmit="searchStock(event)">
-                <div class="input-group">
-                    <label for="ticker">股票代碼</label>
-                    <input type="text" id="ticker" placeholder="例如: 2330, AAPL, TSLA" required value="2330">
+            <form id="searchForm" onsubmit="handleSearch(event)">
+                <div class="search-grid">
+                    <div class="form-group">
+                        <label class="form-label">股票代碼</label>
+                        <input type="text" id="ticker" class="form-input" placeholder="輸入代碼，例如：2330, AAPL" value="2330" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">時間範圍</label>
+                        <select id="period" class="form-select">
+                            <option value="1mo" selected>近一個月</option>
+                            <option value="3mo">近三個月</option>
+                            <option value="6mo">近半年</option>
+                            <option value="1y">近一年</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">新聞數量</label>
+                        <input type="number" id="maxNews" class="form-input" value="50" min="10" max="100">
+                    </div>
+                    <button type="submit" id="searchBtn" class="btn-primary">分析</button>
                 </div>
-                <div class="input-group">
-                    <label for="period">時間範圍</label>
-                    <select id="period">
-                        <option value="1mo" selected>1 個月</option>
-                        <option value="3mo">3 個月</option>
-                        <option value="6mo">6 個月</option>
-                        <option value="1y">1 年</option>
-                    </select>
-                </div>
-                <div class="input-group">
-                    <label for="maxArticles">新聞數量</label>
-                    <input type="number" id="maxArticles" value="50" min="10" max="100">
-                </div>
-                <button type="submit" class="btn-search" id="searchBtn">
-                    🔍 分析
-                </button>
             </form>
         </div>
 
-        <!-- 統計卡片 -->
+        <!-- Stats Grid -->
         <div class="stats-grid" id="statsGrid" style="display: none;">
             <div class="stat-card">
-                <div class="stat-label">新聞總數</div>
-                <div class="stat-value" id="newsCount">0</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">平均情緒</div>
-                <div class="stat-value" id="avgSentiment">0.00</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">股價資料點</div>
-                <div class="stat-value" id="pricePoints">0</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">最新股價</div>
+                <div class="stat-header">
+                    <span class="stat-label">最新價格</span>
+                    <span class="stat-icon">💰</span>
+                </div>
                 <div class="stat-value" id="latestPrice">--</div>
+                <div class="stat-change" id="priceChange">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-label">新聞總數</span>
+                    <span class="stat-icon">📰</span>
+                </div>
+                <div class="stat-value" id="newsCount">0</div>
+                <div class="stat-change">過去 24 小時</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-label">平均情緒</span>
+                    <span class="stat-icon">💭</span>
+                </div>
+                <div class="stat-value" id="avgSentiment">0.00</div>
+                <div class="stat-change" id="sentimentTrend">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-label">資料點數</span>
+                    <span class="stat-icon">📊</span>
+                </div>
+                <div class="stat-value" id="dataPoints">0</div>
+                <div class="stat-change">股價記錄</div>
             </div>
         </div>
 
-        <!-- 情緒分析總覽 -->
-        <div class="sentiment-card" id="sentimentCard" style="display: none;">
-            <div class="card-title">💭 新聞情緒分析</div>
-            <div class="sentiment-grid">
-                <div class="sentiment-item sentiment-positive">
-                    <div class="sentiment-percent" id="positivePercent">0%</div>
-                    <div class="sentiment-label">正面</div>
+        <!-- Charts Grid -->
+        <div class="chart-grid">
+            <!-- Price Chart -->
+            <div class="chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">股價走勢</h2>
+                    <div class="card-actions">
+                        <button class="btn-icon" title="下載">📥</button>
+                        <button class="btn-icon" title="全螢幕">⛶</button>
+                    </div>
                 </div>
-                <div class="sentiment-item sentiment-neutral">
-                    <div class="sentiment-percent" id="neutralPercent">0%</div>
-                    <div class="sentiment-label">中立</div>
-                </div>
-                <div class="sentiment-item sentiment-negative">
-                    <div class="sentiment-percent" id="negativePercent">0%</div>
-                    <div class="sentiment-label">負面</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 主要內容 -->
-        <div class="content-grid">
-            <!-- 股價圖表 -->
-            <div class="card">
-                <div class="card-title">📊 股價走勢</div>
-                <div class="chart-container">
-                    <canvas id="priceChart"></canvas>
-                </div>
+                <div id="priceChart"></div>
             </div>
 
-            <!-- 新聞列表 -->
-            <div class="card">
-                <div class="card-title">📰 相關新聞</div>
-                <div class="news-list" id="newsList">
+            <!-- News Feed -->
+            <div class="chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">相關新聞</h2>
+                </div>
+                <div id="newsFeed" class="news-feed">
                     <div class="empty-state">
-                        <div class="empty-state-icon">🔍</div>
-                        <p>輸入股票代碼開始分析</p>
+                        <div class="empty-icon">🔍</div>
+                        <div class="empty-title">開始分析</div>
+                        <div class="empty-text">輸入股票代碼來查看相關新聞</div>
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- Sentiment Analysis -->
+        <div class="chart-card">
+            <div class="card-header">
+                <h2 class="card-title">新聞情緒分析</h2>
+            </div>
+            <div class="sentiment-grid">
+                <div class="sentiment-item positive">
+                    <div class="sentiment-value" id="positivePercent">0%</div>
+                    <div class="sentiment-label">正面</div>
+                </div>
+                <div class="sentiment-item neutral">
+                    <div class="sentiment-value" id="neutralPercent">0%</div>
+                    <div class="sentiment-label">中立</div>
+                </div>
+                <div class="sentiment-item negative">
+                    <div class="sentiment-value" id="negativePercent">0%</div>
+                    <div class="sentiment-label">負面</div>
+                </div>
+            </div>
+            <div id="sentimentChart"></div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <div class="loading-text">正在分析資料...</div>
         </div>
     </div>
 
