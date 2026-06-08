@@ -776,21 +776,21 @@ class Handler(BaseHTTPRequestHandler):
             params = parse_qs(parsed.query)
             ticker = (params.get("ticker", ["2330"])[0] or "2330").strip()
             query = (params.get("query", [""])[0] or ticker).strip()
-          model_type = (params.get("model_type", ["rnn"])[0] or "rnn").strip().lower()
+            model_type = (params.get("model_type", ["lexicon"])[0] or "lexicon").strip().lower()
             try:
-            max_articles = int(params.get("max_articles", ["100"])[0])
+                max_articles = int(params.get("max_articles", ["100"])[0])
             except ValueError:
-            max_articles = 100
+                max_articles = 100
             try:
-            json_response(
-              self,
-              run_pipeline(
-                ticker=ticker,
-                query=query,
-                max_articles=max_articles,
-                model_type=model_type,
-              ),
-            )
+                json_response(
+                    self,
+                    run_pipeline(
+                        ticker=ticker,
+                        query=query,
+                        max_articles=max_articles,
+                        model_type=model_type,
+                    ),
+                )
             except Exception as exc:
                 json_response(self, {"ok": False, "error": f"{exc}\n\n{traceback.format_exc()}"}, status=500)
             return
