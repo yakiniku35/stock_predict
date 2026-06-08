@@ -123,6 +123,7 @@ HTML = """<!doctype html>
       .status { display: none; }
     }
   </style>
+<script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
   <header>
