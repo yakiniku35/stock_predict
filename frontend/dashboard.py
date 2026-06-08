@@ -123,6 +123,7 @@ HTML = """<!doctype html>
       .status { display: none; }
     }
   </style>
+<script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
   <header>
@@ -649,10 +650,25 @@ def _build_sentiment_command(model_type: str) -> list[str]:
 
 
 def run_pipeline(ticker: str, query: str, max_articles: int, model_type: str) -> dict:
+    def _sanitize_ticker(value: str) -> str:
+        cleaned = "".join(ch for ch in (value or "").strip() if ch.isalnum() or ch in "._-")
+        cleaned = cleaned[:16]
+        return cleaned or "2330"
+
+    def _sanitize_query(value: str) -> str:
+        cleaned = " ".join((value or "").split())
+        cleaned = "".join(ch for ch in cleaned if ch >= " ")
+        cleaned = cleaned[:120]
+        if cleaned.startswith("-"):
+            cleaned = ""
+        return cleaned
+
     max_articles = min(100, max(10, max_articles))
     model_type = "lexicon"
     per_source = max_articles
-    search_query = " ".join(part for part in [ticker, query] if part).strip() or query or ticker
+    safe_ticker = _sanitize_ticker(ticker)
+    safe_query = _sanitize_query(query)
+    search_query = " ".join(part for part in [safe_ticker, safe_query] if part).strip() or safe_query or safe_ticker
     reset_pipeline_outputs()
     config = write_runtime_config(search_query=search_query, max_articles=max_articles)
     commands = [
@@ -671,7 +687,7 @@ def run_pipeline(ticker: str, query: str, max_articles: int, model_type: str) ->
             "--per-source-max-items",
             str(per_source),
             "--ticker",
-            ticker,
+            safe_ticker,
             "--query",
             search_query,
             "--min-content-length",
