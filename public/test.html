@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>API 測試</title>
+</head>
+<body>
+    <h1>API 測試</h1>
+    <button onclick="testAPI()">測試 API</button>
+    <pre id="result"></pre>
+    
+    <script>
+    async function testAPI() {
+        const result = document.getElementById('result');
+        result.textContent = '測試中...';
+        
+        try {
+            // 測試新聞 API
+            const newsResponse = await fetch('http://127.0.0.1:8501/api/search?ticker=2330&query=台積電&max_articles=10');
+            const newsData = await newsResponse.json();
+            
+            result.textContent = JSON.stringify(newsData, null, 2);
+            
+            console.log('新聞數量:', newsData.summary.records);
+            console.log('平均情緒:', newsData.summary.score_mean);
+            console.log('正面比例:', newsData.summary.positive_ratio);
+        } catch (error) {
+            result.textContent = '錯誤: ' + error.message;
+        }
+    }
+    </script>
+</body>
+</html>
