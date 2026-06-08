@@ -1,0 +1,17 @@
+{
+  "sources": [
+    {
+      "name": "google_news_current_search",
+      "type": "rss",
+      "enabled": true,
+      "list_url": "https://news.google.com/rss/search?q=2330%20%E5%8F%B0%E7%A9%8D%E9%9B%BB%20AI&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
+      "language": "zh-TW",
+      "timezone": "Asia/Taipei",
+      "max_items": 30,
+      "timeout_seconds": 20,
+      "retry_count": 2,
+      "rate_limit_seconds": 0.05,
+      "rss_use_article_content": false
+    }
+  ]
+}

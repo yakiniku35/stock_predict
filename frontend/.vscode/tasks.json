@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Install Python dependencies",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "-m",
+        "pip",
+        "install",
+        "-r",
+        "requirements-dashboard.txt"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Stock Predict Dashboard",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "frontend/app.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "isBackground": true
+    }
+  ]
+}

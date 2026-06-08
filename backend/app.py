@@ -1,6 +1,11 @@
-from fetcher import StockDataFetcher  # 引入你寫的 Fetcher 模組
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+
+try:
+    from .fetcher import StockDataFetcher
+except ImportError:
+    # Backward compatible when running as script: python backend/app.py
+    from fetcher import StockDataFetcher
 
 app = Flask(__name__)
 # 啟用跨域 (CORS)，確保鞏冠崙的 Frontend (Plotly/Dash) 可以跨 Port 順利呼叫 API
@@ -8,6 +13,35 @@ CORS(app)
 
 # 實例化你的資料獲取器
 fetcher = StockDataFetcher()
+
+VALID_PERIODS = {
+    "1d",
+    "5d",
+    "1mo",
+    "3mo",
+    "6mo",
+    "1y",
+    "2y",
+    "5y",
+    "10y",
+    "ytd",
+    "max",
+}
+VALID_INTERVALS = {
+    "1m",
+    "2m",
+    "5m",
+    "15m",
+    "30m",
+    "60m",
+    "90m",
+    "1h",
+    "1d",
+    "5d",
+    "1wk",
+    "1mo",
+    "3mo",
+}
 
 
 @app.route("/api/stock_insight", methods=["GET"])
@@ -20,6 +54,12 @@ def get_stock_insight():
 
     if not ticker:
         return jsonify({"status": "error", "message": "缺少必要的股票代碼參數 (ticker)"}), 400
+
+    if period not in VALID_PERIODS:
+        return jsonify({"status": "error", "message": f"不支援的 period: {period}"}), 400
+
+    if interval not in VALID_INTERVALS:
+        return jsonify({"status": "error", "message": f"不支援的 interval: {interval}"}), 400
 
     # 1. 執行你負責的 yfinance 資料鏈路
     prices = fetcher.get_historical_prices(
@@ -44,6 +84,10 @@ def get_stock_insight():
     response_payload = {
         "status": "success",
         "ticker": ticker,
+        "request": {
+            "period": period,
+            "interval": interval,
+        },
         "metrics": {
             "total_fetched_prices": len(prices),
             "total_fetched_news": len(news_sentiment),
@@ -59,6 +103,17 @@ def get_stock_insight():
 def health_check():
     """系統健康檢查端點"""
     return jsonify({"status": "healthy", "service": "stock_predict_backend"})
+
+
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify(
+        {
+            "service": "stock_predict_backend",
+            "status": "running",
+            "endpoints": ["/api/health", "/api/stock_insight?ticker=2330&period=1mo&interval=1d"],
+        }
+    )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,25 @@
+{
+  "input": "data\\raw\\news_latest.jsonl",
+  "output": "data\\normalized\\news_with_sentiment.jsonl",
+  "records": 30,
+  "bad_lines_skipped": 0,
+  "errors": 0,
+  "distribution": {
+    "positive": 3,
+    "neutral": 25,
+    "negative": 2
+  },
+  "thresholds": {
+    "positive": 0.2,
+    "negative": -0.2
+  },
+  "runtime": {
+    "execution_mode": "thread_pool",
+    "workers": 4,
+    "seconds": 0.3455,
+    "records_per_second": 86.83,
+    "model": "lexicon_baseline_v2",
+    "is_rnn": false
+  },
+  "model_type": "lexicon"
+}

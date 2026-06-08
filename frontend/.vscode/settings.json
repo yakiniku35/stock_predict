@@ -1,0 +1,8 @@
+{
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}",
+    "${workspaceFolder}/models",
+    "${workspaceFolder}/crawler"
+  ],
+  "python.terminal.activateEnvironment": true
+}
