@@ -1,3 +1,18 @@
+const rootNode = document.getElementById('rechartsChartRoot');
+const React = window.React;
+const ReactDOM = window.ReactDOM;
+const Recharts = window.Recharts;
+
+if (!rootNode) {
+  console.warn('[Recharts] rechartsChartRoot not found.');
+} else if (!React || !ReactDOM || !Recharts) {
+  rootNode.innerHTML = '<div style="height:420px;display:grid;place-items:center;color:#f87171;">Recharts 載入失敗，請重新整理頁面。</div>';
+  console.error('[Recharts] Missing dependency', {
+    hasReact: !!React,
+    hasReactDOM: !!ReactDOM,
+    hasRecharts: !!Recharts,
+  });
+} else {
 const { useState, useEffect, useMemo, useCallback } = React;
 const {
   ResponsiveContainer,
@@ -346,8 +361,8 @@ function StockRechartsPanel() {
   );
 }
 
-const rootNode = document.getElementById('rechartsChartRoot');
 if (rootNode) {
   const root = ReactDOM.createRoot(rootNode);
   root.render(<StockRechartsPanel />);
+}
 }
