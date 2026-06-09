@@ -5,7 +5,8 @@ let currentForecastHorizon = 7;
 const SUBCHART_MODE = 'multi';
 const chartInteractionState = {
     activeOverlays: new Set(),
-    activeSubcharts: new Set()
+    activeSubcharts: new Set(),
+    syncingHover: false
 };
 
 const API = {
@@ -16,6 +17,7 @@ const API = {
 async function analyze() {
     const ticker = document.getElementById('ticker').value.trim().toUpperCase();
     const period = document.getElementById('period').value;
+    const interval = getSelectedInterval();
     const btn = document.getElementById('btn');
     
     if (!ticker) return;
@@ -26,7 +28,7 @@ async function analyze() {
     
     try {
         const [stockData, newsData] = await Promise.all([
-            fetchStock(ticker, period, currentForecastHorizon),
+            fetchStock(ticker, period, interval, currentForecastHorizon),
             fetchNews(ticker, 50)
         ]);
         
@@ -42,8 +44,51 @@ async function analyze() {
     }
 }
 
-async function fetchStock(ticker, period, forecastHorizon = 7) {
-    const res = await fetch(`${API.stock}?ticker=${ticker}&period=${period}&interval=1d&forecast_horizon=${forecastHorizon}`);
+function getSelectedInterval() {
+    const intervalEl = document.getElementById('interval');
+    return intervalEl ? intervalEl.value : '1d';
+}
+
+function getEffectivePeriod(period, interval) {
+    if (['5m', '15m'].includes(interval) && !['1d', '5d', '1mo'].includes(period)) {
+        return '1mo';
+    }
+    return period;
+}
+
+function updateRangeLabel(period, interval) {
+    const label = document.getElementById('chartRangeLabel');
+    if (!label) return;
+
+    const periodText = {
+        '1d': '1D',
+        '5d': '5D',
+        '1mo': '1M',
+        '3mo': '3M',
+        '6mo': '6M',
+        '1y': '1Y'
+    }[period] || period.toUpperCase();
+    const intervalText = {
+        '5m': '5m',
+        '15m': '15m',
+        '1h': '1H',
+        '1d': '1D',
+        '1wk': '1W',
+        '1mo': '1M'
+    }[interval] || interval;
+
+    label.textContent = `(${periodText} · ${intervalText})`;
+}
+
+async function fetchStock(ticker, period, interval = '1d', forecastHorizon = 7) {
+    const effectivePeriod = getEffectivePeriod(period, interval);
+    const query = new URLSearchParams({
+        ticker,
+        period: effectivePeriod,
+        interval,
+        forecast_horizon: String(forecastHorizon)
+    });
+    const res = await fetch(`${API.stock}?${query.toString()}`);
     if (!res.ok) throw new Error('無法獲取股價');
     const data = await res.json();
 
@@ -51,7 +96,7 @@ async function fetchStock(ticker, period, forecastHorizon = 7) {
     const indicators = data.technical_indicators || calculateIndicators(prices);
     const changeDetail = data.price_change_detail || calculatePriceChanges(prices);
 
-    return { ...data, indicators, changeDetail };
+    return { ...data, indicators, changeDetail, requestedPeriod: period, effectivePeriod, requestedInterval: interval };
 }
 
 async function refreshForecastHorizon(days) {
@@ -59,8 +104,9 @@ async function refreshForecastHorizon(days) {
     if (!currentData) return;
     const ticker = currentData.ticker;
     const period = document.getElementById('period').value;
+    const interval = getSelectedInterval();
     try {
-        const stockData = await fetchStock(ticker, period, currentForecastHorizon);
+        const stockData = await fetchStock(ticker, period, interval, currentForecastHorizon);
         currentData = { ...currentData, stockData };
         render(currentData);
     } catch (error) {
@@ -277,6 +323,7 @@ function render({ ticker, stockData, newsData }) {
     const latest = prices[prices.length - 1];
     const prev = prices[prices.length - 2];
     const changeDetail = stockData.changeDetail;
+    updateRangeLabel(stockData.effectivePeriod || document.getElementById('period').value, stockData.requestedInterval || getSelectedInterval());
     
     // 更新卡片
     document.getElementById('price').textContent = latest.close.toFixed(2);
@@ -443,7 +490,84 @@ function drawMainChart(ticker, prices, indicators) {
         });
     }
 
-    Plotly.newPlot('mainChart', traces, getLayout(false, 620), { displayModeBar: false, responsive: true });
+    Plotly.newPlot('mainChart', traces, getLayout(false, 620), { displayModeBar: false, responsive: true })
+        .then(() => bindSyncedHover('mainChart'));
+}
+
+function getVisibleChartIds() {
+    return [
+        'mainChart',
+        ...Array.from(chartInteractionState.activeSubcharts).map((name) => `subchart-${name}`)
+    ].filter((id) => document.getElementById(id));
+}
+
+function normalizeHoverX(value) {
+    if (value === null || value === undefined) return '';
+    if (value instanceof Date) return value.toISOString();
+    return String(value);
+}
+
+function getPointNumberForX(chartId, xValue) {
+    const chart = document.getElementById(chartId);
+    const x = normalizeHoverX(xValue);
+    const xData = chart?.data?.[0]?.x || [];
+    return xData.findIndex((item) => normalizeHoverX(item) === x);
+}
+
+function syncHoverAcrossCharts(sourceId, xValue) {
+    if (chartInteractionState.syncingHover) return;
+    chartInteractionState.syncingHover = true;
+
+    getVisibleChartIds().forEach((chartId) => {
+        if (chartId === sourceId) return;
+        const pointNumber = getPointNumberForX(chartId, xValue);
+        if (pointNumber < 0) return;
+        try {
+            Plotly.Fx.hover(chartId, [{ curveNumber: 0, pointNumber }], ['xy']);
+        } catch (error) {
+            console.warn('Unable to sync chart hover:', chartId, error);
+        }
+    });
+
+    chartInteractionState.syncingHover = false;
+}
+
+function clearSyncedHover(sourceId) {
+    if (chartInteractionState.syncingHover) return;
+    chartInteractionState.syncingHover = true;
+
+    getVisibleChartIds().forEach((chartId) => {
+        if (chartId === sourceId) return;
+        try {
+            Plotly.Fx.unhover(chartId);
+        } catch (error) {
+            console.warn('Unable to clear chart hover:', chartId, error);
+        }
+    });
+
+    chartInteractionState.syncingHover = false;
+}
+
+function bindSyncedHover(chartId) {
+    const chart = document.getElementById(chartId);
+    if (!chart || typeof chart.on !== 'function') return;
+
+    if (chart._stockSenseHoverHandler && typeof chart.removeListener === 'function') {
+        chart.removeListener('plotly_hover', chart._stockSenseHoverHandler);
+    }
+    if (chart._stockSenseUnhoverHandler && typeof chart.removeListener === 'function') {
+        chart.removeListener('plotly_unhover', chart._stockSenseUnhoverHandler);
+    }
+
+    chart._stockSenseHoverHandler = (event) => {
+        const xValue = event?.points?.[0]?.x;
+        if (xValue === undefined) return;
+        syncHoverAcrossCharts(chartId, xValue);
+    };
+    chart._stockSenseUnhoverHandler = () => clearSyncedHover(chartId);
+
+    chart.on('plotly_hover', chart._stockSenseHoverHandler);
+    chart.on('plotly_unhover', chart._stockSenseUnhoverHandler);
 }
 
 function getSubchartLayout(title) {
@@ -509,7 +633,8 @@ function drawSubChart(type, prices, indicators) {
             type: 'bar',
             marker: { color: indicators.macd.histogram.map(v => v >= 0 ? '#10b981' : '#ef4444') }
         };
-        Plotly.newPlot(targetId, [hist, macdLine, signal], getSubchartLayout('MACD'), { displayModeBar: false, responsive: true });
+        Plotly.newPlot(targetId, [hist, macdLine, signal], getSubchartLayout('MACD'), { displayModeBar: false, responsive: true })
+            .then(() => bindSyncedHover(targetId));
         return;
     }
 
@@ -517,28 +642,32 @@ function drawSubChart(type, prices, indicators) {
         const rsiTrace = { x: dates, y: indicators.rsi, name: 'RSI', line: { color: '#a855f7' } };
         const upper = { x: dates, y: Array(dates.length).fill(70), name: '70', line: { color: '#ef4444', dash: 'dash', width: 1 } };
         const lower = { x: dates, y: Array(dates.length).fill(30), name: '30', line: { color: '#10b981', dash: 'dash', width: 1 } };
-        Plotly.newPlot(targetId, [rsiTrace, upper, lower], getSubchartLayout('RSI'), { displayModeBar: false, responsive: true });
+        Plotly.newPlot(targetId, [rsiTrace, upper, lower], getSubchartLayout('RSI'), { displayModeBar: false, responsive: true })
+            .then(() => bindSyncedHover(targetId));
         return;
     }
 
     if (type === 'kd') {
         const kTrace = { x: dates, y: indicators.kd.k, name: 'K', line: { color: '#facc15' } };
         const dTrace = { x: dates, y: indicators.kd.d, name: 'D', line: { color: '#a855f7' } };
-        Plotly.newPlot(targetId, [kTrace, dTrace], getSubchartLayout('KD'), { displayModeBar: false, responsive: true });
+        Plotly.newPlot(targetId, [kTrace, dTrace], getSubchartLayout('KD'), { displayModeBar: false, responsive: true })
+            .then(() => bindSyncedHover(targetId));
         return;
     }
 
     if (type === 'bias') {
         const biasTrace = { x: dates, y: indicators.bias, name: 'BIAS 20', line: { color: '#f97316' } };
         const zeroLine = { x: dates, y: Array(dates.length).fill(0), name: '0%', line: { color: '#64748b', dash: 'dash', width: 1 } };
-        Plotly.newPlot(targetId, [biasTrace, zeroLine], getSubchartLayout('BIAS'), { displayModeBar: false, responsive: true });
+        Plotly.newPlot(targetId, [biasTrace, zeroLine], getSubchartLayout('BIAS'), { displayModeBar: false, responsive: true })
+            .then(() => bindSyncedHover(targetId));
         return;
     }
 
     if (type === 'ad') {
         const adMillion = indicators.ad.map(v => (v === null ? null : v / 1000000));
         const adTrace = { x: dates, y: adMillion, name: 'A/D (M)', line: { color: '#22c55e' } };
-        Plotly.newPlot(targetId, [adTrace], getSubchartLayout('AD'), { displayModeBar: false, responsive: true });
+        Plotly.newPlot(targetId, [adTrace], getSubchartLayout('AD'), { displayModeBar: false, responsive: true })
+            .then(() => bindSyncedHover(targetId));
     }
 }
 
@@ -686,6 +815,16 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('ticker').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') analyze();
     });
+
+    const periodEl = document.getElementById('period');
+    const intervalEl = document.getElementById('interval');
+    const updateInitialRange = () => updateRangeLabel(
+        getEffectivePeriod(periodEl?.value || '1y', intervalEl?.value || '1d'),
+        intervalEl?.value || '1d'
+    );
+    periodEl?.addEventListener('change', updateInitialRange);
+    intervalEl?.addEventListener('change', updateInitialRange);
+    updateInitialRange();
 
     const overlayButtons = document.querySelectorAll('[data-overlay]');
     overlayButtons.forEach((btn) => {

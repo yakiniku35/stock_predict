@@ -44,7 +44,7 @@
             padding: 1rem;
             margin-bottom: 1rem;
             display: grid;
-            grid-template-columns: 2fr 1fr auto;
+            grid-template-columns: 2fr 0.85fr 0.85fr auto;
             gap: 1rem;
             box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
         }
@@ -427,10 +427,20 @@
         <div class="search-bar">
             <input type="text" id="ticker" placeholder="股票代碼 (例: 2330, AAPL)" value="2330">
             <select id="period">
+                <option value="1d">1天</option>
+                <option value="5d">5天</option>
                 <option value="1mo">1個月</option>
                 <option value="3mo">3個月</option>
                 <option value="6mo">6個月</option>
                 <option value="1y" selected>1年</option>
+            </select>
+            <select id="interval">
+                <option value="5m">5m</option>
+                <option value="15m">15m</option>
+                <option value="1h">1H</option>
+                <option value="1d" selected>1D</option>
+                <option value="1wk">1W</option>
+                <option value="1mo">1M</option>
             </select>
             <button onclick="analyze()" id="btn">分析</button>
         </div>
@@ -457,7 +467,7 @@
         <div class="chart-card">
             <div class="chart-header">
                 <div>
-                    <div class="chart-title">歷史價格與指標 (1Y)</div>
+                    <div class="chart-title">歷史價格與指標 <span id="chartRangeLabel">(1Y · 1D)</span></div>
                     <div class="chart-subtitle">預設僅顯示股票價格，指標可依需要開啟</div>
                 </div>
                 <div class="chart-options">
