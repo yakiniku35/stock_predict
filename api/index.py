@@ -9,6 +9,8 @@ from pathlib import Path
 from urllib.parse import quote
 import xml.etree.ElementTree as ET
 
+import numpy as np
+import pandas as pd
 import requests
 
 backend_path = Path(__file__).parent.parent / "backend"
@@ -35,6 +37,153 @@ VALID_PERIODS = {
 VALID_INTERVALS = {
     "1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"
 }
+
+
+def _to_float_or_none(value):
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if np.isnan(numeric):
+        return None
+    return numeric
+
+
+def _series_to_list(series: pd.Series, digits: int = 4) -> list[float | None]:
+    output: list[float | None] = []
+    for value in series.tolist():
+        numeric = _to_float_or_none(value)
+        output.append(round(numeric, digits) if numeric is not None else None)
+    return output
+
+
+def _compute_technical_indicators(prices: list[dict]) -> dict:
+    if not prices:
+        return {
+            "sma": {},
+            "bb": {},
+            "macd": {},
+            "kd": {},
+            "rsi": [],
+            "bias": [],
+            "ad": [],
+        }
+
+    df = pd.DataFrame(prices)
+    close = pd.to_numeric(df["close"], errors="coerce")
+    high = pd.to_numeric(df["high"], errors="coerce")
+    low = pd.to_numeric(df["low"], errors="coerce")
+    volume = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0)
+
+    sma5 = close.rolling(window=5, min_periods=5).mean()
+    sma20 = close.rolling(window=20, min_periods=20).mean()
+    sma60 = close.rolling(window=60, min_periods=60).mean()
+    sma120 = close.rolling(window=120, min_periods=120).mean()
+    sma240 = close.rolling(window=240, min_periods=240).mean()
+
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    macd_signal = macd_line.ewm(span=9, adjust=False).mean()
+    macd_hist = macd_line - macd_signal
+
+    delta = close.diff()
+    gains = delta.clip(lower=0.0)
+    losses = -delta.clip(upper=0.0)
+    avg_gain = gains.rolling(window=14, min_periods=14).mean()
+    avg_loss = losses.rolling(window=14, min_periods=14).mean()
+    rs = avg_gain / avg_loss.replace(0.0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+
+    low14 = low.rolling(window=14, min_periods=14).min()
+    high14 = high.rolling(window=14, min_periods=14).max()
+    k_base = ((close - low14) / (high14 - low14).replace(0.0, np.nan)) * 100.0
+    k = k_base.rolling(window=3, min_periods=3).mean()
+    d = k.rolling(window=3, min_periods=3).mean()
+
+    bb_mid = sma20
+    bb_std = close.rolling(window=20, min_periods=20).std()
+    bb_upper = bb_mid + (bb_std * 2.0)
+    bb_lower = bb_mid - (bb_std * 2.0)
+
+    bias20 = ((close - sma20) / sma20.replace(0.0, np.nan)) * 100.0
+
+    mfm = ((close - low) - (high - close)) / (high - low).replace(0.0, np.nan)
+    mfm = mfm.fillna(0.0)
+    mfv = mfm * volume
+    ad = mfv.cumsum()
+
+    return {
+        "sma": {
+            "sma5": _series_to_list(sma5, digits=2),
+            "sma20": _series_to_list(sma20, digits=2),
+            "sma60": _series_to_list(sma60, digits=2),
+            "sma120": _series_to_list(sma120, digits=2),
+            "sma240": _series_to_list(sma240, digits=2),
+        },
+        "bb": {
+            "upper": _series_to_list(bb_upper, digits=2),
+            "middle": _series_to_list(bb_mid, digits=2),
+            "lower": _series_to_list(bb_lower, digits=2),
+        },
+        "macd": {
+            "macd": _series_to_list(macd_line),
+            "signal": _series_to_list(macd_signal),
+            "histogram": _series_to_list(macd_hist),
+        },
+        "kd": {
+            "k": _series_to_list(k, digits=2),
+            "d": _series_to_list(d, digits=2),
+        },
+        "rsi": _series_to_list(rsi, digits=2),
+        "bias": _series_to_list(bias20, digits=2),
+        "ad": _series_to_list(ad, digits=2),
+    }
+
+
+def _change_from_reference(latest: float, reference: float | None) -> dict:
+    if reference is None or reference == 0:
+        return {
+            "change": 0.0,
+            "pct": 0.0,
+        }
+    change = latest - reference
+    return {
+        "change": round(change, 2),
+        "pct": round((change / reference) * 100.0, 2),
+    }
+
+
+def _compute_price_change_detail(prices: list[dict]) -> dict:
+    if not prices:
+        return {
+            "intraday": {"change": 0.0, "pct": 0.0},
+            "one_day": {"change": 0.0, "pct": 0.0},
+            "one_week": {"change": 0.0, "pct": 0.0},
+            "one_month": {"change": 0.0, "pct": 0.0},
+        }
+
+    latest = prices[-1]
+    latest_close = _to_float_or_none(latest.get("close")) or 0.0
+    latest_open = _to_float_or_none(latest.get("open")) or latest_close
+
+    prev_close = _to_float_or_none(prices[-2].get("close")) if len(prices) >= 2 else None
+    week_close = _to_float_or_none(prices[-6].get("close")) if len(prices) >= 6 else None
+    month_close = _to_float_or_none(prices[-21].get("close")) if len(prices) >= 21 else None
+
+    intraday = _change_from_reference(latest_close, latest_open)
+    one_day = _change_from_reference(latest_close, prev_close)
+    one_week = _change_from_reference(latest_close, week_close)
+    one_month = _change_from_reference(latest_close, month_close)
+
+    return {
+        "intraday": intraday,
+        "one_day": one_day,
+        "one_week": one_week,
+        "one_month": one_month,
+    }
 
 def _parse_rss_datetime(value):
     if not value:
@@ -273,6 +422,8 @@ def get_stock_insight():
             }), 404
 
         news_sentiment = fetcher.get_news_sentiment_from_pipeline(ticker)
+        technical_indicators = _compute_technical_indicators(prices)
+        change_detail = _compute_price_change_detail(prices)
 
         return jsonify({
             "status": "success",
@@ -283,6 +434,8 @@ def get_stock_insight():
                 "total_fetched_news": len(news_sentiment)
             },
             "stock_price_trends": prices,
+            "technical_indicators": technical_indicators,
+            "price_change_detail": change_detail,
             "news_sentiment_list": news_sentiment
         })
     except Exception as e:

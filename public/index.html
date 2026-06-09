@@ -106,6 +106,14 @@
         .card-change {
             font-size: 0.875rem;
         }
+
+        .detail-list {
+            margin-top: 0.75rem;
+            font-size: 0.8rem;
+            color: #9ca3af;
+            display: grid;
+            gap: 0.25rem;
+        }
         
         .positive { color: #10b981; }
         .negative { color: #ef4444; }
@@ -230,18 +238,19 @@
             <input type="text" id="ticker" placeholder="股票代碼 (例: 2330, AAPL)" value="2330">
             <select id="period">
                 <option value="1mo">1個月</option>
-                <option value="3mo" selected>3個月</option>
+                <option value="3mo">3個月</option>
                 <option value="6mo">6個月</option>
-                <option value="1y">1年</option>
+                <option value="1y" selected>1年</option>
             </select>
             <button onclick="analyze()" id="btn">分析</button>
         </div>
 
         <div class="grid-3">
             <div class="card">
-                <div class="card-title">最新價格</div>
+                <div class="card-title">最新價格與漲跌</div>
                 <div class="card-value" id="price">--</div>
                 <div class="card-change" id="priceChange">--</div>
+                <div class="detail-list" id="priceDetail">--</div>
             </div>
             <div class="card">
                 <div class="card-title">新聞情緒</div>
@@ -257,12 +266,14 @@
 
         <div class="chart-card">
             <div class="chart-header">
-                <div class="chart-title">股價走勢</div>
+                <div class="chart-title">歷史價格與指標 (1Y)</div>
                 <div class="tabs">
                     <div class="tab active" onclick="switchChart('price')">價格</div>
                     <div class="tab" onclick="switchChart('macd')">MACD</div>
                     <div class="tab" onclick="switchChart('rsi')">RSI</div>
                     <div class="tab" onclick="switchChart('kd')">KD</div>
+                    <div class="tab" onclick="switchChart('bias')">BIAS</div>
+                    <div class="tab" onclick="switchChart('ad')">AD</div>
                 </div>
             </div>
             <div id="mainChart" style="height: 400px;"></div>
@@ -271,7 +282,7 @@
         <div class="grid-2">
             <div class="chart-card">
                 <div class="chart-header">
-                    <div class="chart-title">技術指標</div>
+                    <div class="chart-title">技術指標熱力圖 (漲跌週期)</div>
                 </div>
                 <div id="indChart" style="height: 300px;"></div>
             </div>

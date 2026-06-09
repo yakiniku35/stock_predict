@@ -39,12 +39,12 @@ async function fetchStock(ticker, period) {
     const res = await fetch(`${API.stock}?ticker=${ticker}&period=${period}&interval=1d`);
     if (!res.ok) throw new Error('無法獲取股價');
     const data = await res.json();
-    
-    // 計算指標
+
     const prices = data.stock_price_trends;
-    const indicators = calculateIndicators(prices);
-    
-    return { ...data, indicators };
+    const indicators = data.technical_indicators || calculateIndicators(prices);
+    const changeDetail = data.price_change_detail || calculatePriceChanges(prices);
+
+    return { ...data, indicators, changeDetail };
 }
 
 async function fetchNews(ticker, max) {
@@ -62,25 +62,34 @@ function calculateIndicators(prices) {
     const closes = prices.map(p => p.close);
     const highs = prices.map(p => p.high);
     const lows = prices.map(p => p.low);
+    const volumes = prices.map(p => p.volume || 0);
     
-    // MA
-    const ma5 = sma(closes, 5);
-    const ma10 = sma(closes, 10);
-    const ma20 = sma(closes, 20);
+    const sma5 = sma(closes, 5);
+    const sma20 = sma(closes, 20);
+    const sma60 = sma(closes, 60);
+    const sma120 = sma(closes, 120);
+    const sma240 = sma(closes, 240);
     
-    // MACD
     const macd = calculateMACD(closes);
-    
-    // RSI
     const rsi = calculateRSI(closes, 14);
-    
-    // KD
-    const kd = calculateKD(highs, lows, closes, 9);
-    
-    // Bollinger Bands
+    const kd = calculateKD(highs, lows, closes, 14);
     const bb = calculateBB(closes, 20, 2);
+    const bias = calculateBIAS(closes, sma20);
+    const ad = calculateAD(highs, lows, closes, volumes);
     
-    return { ma5, ma10, ma20, macd, rsi, kd, bb };
+    return {
+        sma: { sma5, sma20, sma60, sma120, sma240 },
+        bb,
+        macd: {
+            macd: macd.macdLine,
+            signal: macd.signal,
+            histogram: macd.histogram
+        },
+        kd,
+        rsi,
+        bias,
+        ad
+    };
 }
 
 function sma(data, period) {
@@ -161,6 +170,65 @@ function calculateKD(highs, lows, closes, period) {
     return { k: kFull, d: dFull };
 }
 
+function calculateBIAS(closes, ma20) {
+    return closes.map((close, idx) => {
+        const base = ma20[idx];
+        if (base === null || base === 0) return null;
+        return ((close - base) / base) * 100;
+    });
+}
+
+function calculateAD(highs, lows, closes, volumes) {
+    const ad = [];
+    let cumulative = 0;
+    for (let i = 0; i < closes.length; i++) {
+        const high = highs[i];
+        const low = lows[i];
+        const close = closes[i];
+        const volume = volumes[i] || 0;
+        const range = high - low;
+        const mfm = range === 0 ? 0 : (((close - low) - (high - close)) / range);
+        const mfv = mfm * volume;
+        cumulative += mfv;
+        ad.push(cumulative);
+    }
+    return ad;
+}
+
+function calculatePriceChanges(prices) {
+    if (!prices || prices.length === 0) {
+        return {
+            intraday: { change: 0, pct: 0 },
+            one_day: { change: 0, pct: 0 },
+            one_week: { change: 0, pct: 0 },
+            one_month: { change: 0, pct: 0 }
+        };
+    }
+
+    const latest = prices[prices.length - 1];
+    const latestClose = latest.close;
+    const latestOpen = latest.open || latestClose;
+    const prevClose = prices.length >= 2 ? prices[prices.length - 2].close : null;
+    const weekClose = prices.length >= 6 ? prices[prices.length - 6].close : null;
+    const monthClose = prices.length >= 21 ? prices[prices.length - 21].close : null;
+
+    const calc = (ref) => {
+        if (!ref) return { change: 0, pct: 0 };
+        const change = latestClose - ref;
+        return {
+            change,
+            pct: ref === 0 ? 0 : (change / ref) * 100
+        };
+    };
+
+    return {
+        intraday: calc(latestOpen),
+        one_day: calc(prevClose),
+        one_week: calc(weekClose),
+        one_month: calc(monthClose)
+    };
+}
+
 function calculateBB(closes, period, stdDev) {
     const middle = sma(closes, period);
     const upper = [];
@@ -187,6 +255,7 @@ function render({ ticker, stockData, newsData }) {
     const prices = stockData.stock_price_trends;
     const latest = prices[prices.length - 1];
     const prev = prices[prices.length - 2];
+    const changeDetail = stockData.changeDetail;
     
     // 更新卡片
     document.getElementById('price').textContent = latest.close.toFixed(2);
@@ -196,16 +265,28 @@ function render({ ticker, stockData, newsData }) {
     priceChangeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
     priceChangeEl.className = `card-change ${change >= 0 ? 'positive' : 'negative'}`;
     
+    const priceDetailEl = document.getElementById('priceDetail');
+    const formatChange = (item) => {
+        const sign = item.change >= 0 ? '+' : '';
+        const css = item.change >= 0 ? 'positive' : 'negative';
+        return `<span class="${css}">${sign}${item.change.toFixed(2)} (${sign}${item.pct.toFixed(2)}%)</span>`;
+    };
+    priceDetailEl.innerHTML = `
+        <div>日內: ${formatChange(changeDetail.intraday)}</div>
+        <div>一週: ${formatChange(changeDetail.one_week)}</div>
+        <div>一月: ${formatChange(changeDetail.one_month)}</div>
+    `;
+    
     // 情緒
     const sentiment = newsData.summary?.score_mean || 0;
     document.getElementById('sentiment').textContent = sentiment.toFixed(2);
     const sentimentTextEl = document.getElementById('sentimentText');
     const modelUsed = newsData.summary?.model_used || 'unknown';
     const modelStatus = newsData.summary?.model_status || 'unknown';
-    const sentimentLabel = sentiment > 0.1 ? '偏正面' : sentiment < -0.1 ? '偏負面' : '中立';
+    const sentimentLabel = sentiment > 20 ? '偏正面' : sentiment < -20 ? '偏負面' : '中立';
     sentimentTextEl.textContent = `${sentimentLabel} · ${modelUsed}${modelStatus === 'ok' ? '' : ' fallback'}`;
     sentimentTextEl.title = newsData.summary?.model_error || modelStatus;
-    sentimentTextEl.className = `card-change ${sentiment > 0.1 ? 'positive' : sentiment < -0.1 ? 'negative' : ''}`;
+    sentimentTextEl.className = `card-change ${sentiment > 20 ? 'positive' : sentiment < -20 ? 'negative' : ''}`;
     
     // RSI
     const rsi = stockData.indicators.rsi;
@@ -238,14 +319,27 @@ function drawMainChart(ticker, prices, indicators) {
             increasing: { line: { color: '#10b981' } },
             decreasing: { line: { color: '#ef4444' } }
         };
-        
-        const ma5 = { x: dates, y: indicators.ma5, name: 'MA5', line: { color: '#0ea5e9', width: 1 } };
-        const ma20 = { x: dates, y: indicators.ma20, name: 'MA20', line: { color: '#f59e0b', width: 1 } };
-        
-        Plotly.newPlot('mainChart', [trace, ma5, ma20], getLayout(), { displayModeBar: false, responsive: true });
+
+        const ma5 = { x: dates, y: indicators.sma.sma5, name: 'SMA 5', line: { color: '#0ea5e9', width: 1 } };
+        const ma20 = { x: dates, y: indicators.sma.sma20, name: 'SMA 20', line: { color: '#f59e0b', width: 1 } };
+        const ma60 = { x: dates, y: indicators.sma.sma60, name: 'SMA 60', line: { color: '#a78bfa', width: 1 } };
+        const ma120 = { x: dates, y: indicators.sma.sma120, name: 'SMA 120', line: { color: '#22d3ee', width: 1 } };
+        const ma240 = { x: dates, y: indicators.sma.sma240, name: 'SMA 240', line: { color: '#eab308', width: 1 } };
+
+        const bbUpper = { x: dates, y: indicators.bb.upper, name: 'BB Upper', line: { color: '#94a3b8', width: 1, dash: 'dot' } };
+        const bbLower = {
+            x: dates,
+            y: indicators.bb.lower,
+            name: 'BB Lower',
+            line: { color: '#94a3b8', width: 1, dash: 'dot' },
+            fill: 'tonexty',
+            fillcolor: 'rgba(148, 163, 184, 0.12)'
+        };
+
+        Plotly.newPlot('mainChart', [trace, ma5, ma20, ma60, ma120, ma240, bbUpper, bbLower], getLayout(), { displayModeBar: false, responsive: true });
         
     } else if (currentChart === 'macd') {
-        const macdLine = { x: dates, y: indicators.macd.macdLine, name: 'MACD', line: { color: '#0ea5e9' } };
+        const macdLine = { x: dates, y: indicators.macd.macd, name: 'MACD', line: { color: '#0ea5e9' } };
         const signal = { x: dates, y: indicators.macd.signal, name: 'Signal', line: { color: '#f59e0b' } };
         const hist = {
             x: dates,
@@ -269,18 +363,50 @@ function drawMainChart(ticker, prices, indicators) {
         const dTrace = { x: dates, y: indicators.kd.d, name: 'D', line: { color: '#f59e0b' } };
         
         Plotly.newPlot('mainChart', [kTrace, dTrace], getLayout(), { displayModeBar: false, responsive: true });
+
+    } else if (currentChart === 'bias') {
+        const biasTrace = { x: dates, y: indicators.bias, name: 'BIAS 20', line: { color: '#f97316' } };
+        const zeroLine = { x: dates, y: Array(dates.length).fill(0), name: '基準 0%', line: { color: '#64748b', dash: 'dash', width: 1 } };
+
+        Plotly.newPlot('mainChart', [biasTrace, zeroLine], getLayout(), { displayModeBar: false, responsive: true });
+
+    } else if (currentChart === 'ad') {
+        const adMillion = indicators.ad.map(v => (v === null ? null : v / 1000000));
+        const adTrace = { x: dates, y: adMillion, name: 'A/D (M)', line: { color: '#22c55e' } };
+
+        Plotly.newPlot('mainChart', [adTrace], getLayout(), { displayModeBar: false, responsive: true });
     }
 }
 
 function drawIndicatorChart(ticker, prices, indicators) {
-    const dates = prices.map(p => p.date);
-    
-    const upper = { x: dates, y: indicators.bb.upper, name: '上軌', line: { color: '#888', width: 1 } };
-    const middle = { x: dates, y: indicators.bb.middle, name: '中軌', line: { color: '#0ea5e9', width: 1 } };
-    const lower = { x: dates, y: indicators.bb.lower, name: '下軌', line: { color: '#888', width: 1 } };
-    const price = { x: dates, y: prices.map(p => p.close), name: '收盤價', line: { color: '#fff', width: 2 } };
-    
-    Plotly.newPlot('indChart', [upper, middle, lower, price], getLayout(true), { displayModeBar: false, responsive: true });
+    const latestClose = prices[prices.length - 1]?.close || 0;
+    const ref = (offset) => {
+        const idx = prices.length - 1 - offset;
+        return idx >= 0 ? prices[idx].close : latestClose;
+    };
+    const labels = ['日內', '1日', '1週', '1月'];
+    const refs = [prices[prices.length - 1]?.open || latestClose, ref(1), ref(5), ref(20)];
+    const values = refs.map(v => (latestClose - v) / (v || 1) * 100);
+
+    const heatBar = {
+        x: labels,
+        y: values,
+        type: 'bar',
+        name: '漲跌幅(%)',
+        marker: {
+            color: values,
+            colorscale: [
+                [0, '#ef4444'],
+                [0.5, '#64748b'],
+                [1, '#10b981']
+            ],
+            cmin: -8,
+            cmax: 8,
+            showscale: false
+        }
+    };
+
+    Plotly.newPlot('indChart', [heatBar], getLayout(true), { displayModeBar: false, responsive: true });
 }
 
 function getLayout(small = false) {
