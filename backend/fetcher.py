@@ -97,3 +97,38 @@ class StockDataFetcher:
         except Exception as e:
             print(f"讀取新聞情緒資料庫錯誤: {e}")
             return []
+
+    def get_company_overview(self, ticker: str):
+        """取得公司概覽資訊（sector/industry/market cap/valuation 等）"""
+        try:
+            if ticker.isdigit() and len(ticker) == 4:
+                yf_ticker = f"{ticker}.TW"
+            else:
+                yf_ticker = ticker
+
+            stock = yf.Ticker(yf_ticker)
+            info = stock.info or {}
+
+            return {
+                "symbol": info.get("symbol") or yf_ticker,
+                "name": info.get("longName") or info.get("shortName") or ticker,
+                "sector": info.get("sector"),
+                "industry": info.get("industry"),
+                "website": info.get("website"),
+                "description": info.get("longBusinessSummary"),
+                "market_cap": info.get("marketCap"),
+                "trailing_pe": info.get("trailingPE"),
+                "forward_pe": info.get("forwardPE"),
+                "eps": info.get("trailingEps"),
+                "profit_margin": info.get("profitMargins"),
+                "operating_margin": info.get("operatingMargins"),
+                "roe": info.get("returnOnEquity"),
+                "debt_to_equity": info.get("debtToEquity"),
+                "dividend_yield": info.get("dividendYield"),
+                "employees": info.get("fullTimeEmployees"),
+                "currency": info.get("currency") or "USD",
+                "exchange": info.get("exchange"),
+            }
+        except Exception as e:
+            print(f"讀取公司概覽錯誤: {e}")
+            return None

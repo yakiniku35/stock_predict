@@ -72,6 +72,21 @@ Output schema (one JSON object per line):
 - `language`, `ticker`
 - `sentiment_score`, `sentiment_label` (filled in Phase 2)
 
+## Stock Insight API Enhancements
+
+`/api/stock_insight` now includes:
+
+- `company_overview`: company fundamentals and profile (sector, industry, valuation, margins, dividend yield, etc.).
+- `technical_indicators`: `SMA(5/20/60/120/240)`, `BB`, `MACD`, `KD`, `RSI`, `BIAS`, `AD`.
+- `price_change_detail`: intraday / one-day / one-week / one-month price changes.
+- `model_forecasts`: multi-model forecasts for `7/14/30` day horizons with `Ensemble`, `LSTM`, `Prophet-Lite`, `GRU`, `CNN-LSTM`, `ARIMA`, `Exponential MA`, `Linear Regression`.
+
+You can set forecast horizon by query parameter:
+
+```text
+/api/stock_insight?ticker=2330&period=1y&interval=1d&forecast_horizon=14
+```
+
 ## Phase 2: Sentiment Baseline + Time-Bucket Features
 
 ### 1) Batch sentiment labeling

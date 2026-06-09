@@ -114,6 +114,90 @@
             display: grid;
             gap: 0.25rem;
         }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 1.3fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .overview-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem 1rem;
+            font-size: 0.85rem;
+            color: #d1d5db;
+        }
+
+        .overview-grid .label {
+            color: #94a3b8;
+            margin-right: 0.25rem;
+        }
+
+        .training-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            color: #94a3b8;
+            font-size: 0.85rem;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+
+        .dot.running { background: #f59e0b; }
+        .dot.done { background: #10b981; }
+
+        .horizon-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .horizon-tab {
+            border: 1px solid #334155;
+            background: #0b1220;
+            color: #cbd5e1;
+            border-radius: 6px;
+            padding: 0.35rem 0.7rem;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .horizon-tab.active {
+            border-color: #0ea5e9;
+            background: #082f49;
+            color: #7dd3fc;
+        }
+
+        .model-list {
+            display: grid;
+            gap: 0.5rem;
+        }
+
+        .model-row {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr 0.6fr;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            border-left: 3px solid #334155;
+            background: #0b1220;
+            font-size: 0.82rem;
+        }
+
+        .model-row.best { border-left-color: #f59e0b; }
+
+        .model-name { color: #e2e8f0; font-weight: 600; }
+        .model-price { color: #93c5fd; text-align: right; font-variant-numeric: tabular-nums; }
+        .model-change { text-align: right; font-variant-numeric: tabular-nums; }
         
         .positive { color: #10b981; }
         .negative { color: #ef4444; }
@@ -268,15 +352,42 @@
             <div class="chart-header">
                 <div class="chart-title">歷史價格與指標 (1Y)</div>
                 <div class="tabs">
-                    <div class="tab active" onclick="switchChart('price')">價格</div>
-                    <div class="tab" onclick="switchChart('macd')">MACD</div>
-                    <div class="tab" onclick="switchChart('rsi')">RSI</div>
-                    <div class="tab" onclick="switchChart('kd')">KD</div>
-                    <div class="tab" onclick="switchChart('bias')">BIAS</div>
-                    <div class="tab" onclick="switchChart('ad')">AD</div>
+                    <div class="tab active" onclick="switchChart('price', event)">價格</div>
+                    <div class="tab" onclick="switchChart('macd', event)">MACD</div>
+                    <div class="tab" onclick="switchChart('rsi', event)">RSI</div>
+                    <div class="tab" onclick="switchChart('kd', event)">KD</div>
+                    <div class="tab" onclick="switchChart('bias', event)">BIAS</div>
+                    <div class="tab" onclick="switchChart('ad', event)">AD</div>
                 </div>
             </div>
             <div id="mainChart" style="height: 400px;"></div>
+        </div>
+
+        <div class="two-col">
+            <div class="chart-card">
+                <div class="chart-header">
+                    <div class="chart-title">Company Overview</div>
+                </div>
+                <div class="overview-grid" id="companyOverview">
+                    <div><span class="label">載入中:</span> --</div>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-header">
+                    <div class="chart-title">ML Predictions</div>
+                </div>
+                <div class="training-row">
+                    <div id="trainingStatus"><span class="dot running"></span>Training...</div>
+                    <div id="forecastPrice">--</div>
+                </div>
+                <div class="horizon-tabs" id="horizonTabs">
+                    <button class="horizon-tab active" data-days="7">7 Days</button>
+                    <button class="horizon-tab" data-days="14">14 Days</button>
+                    <button class="horizon-tab" data-days="30">30 Days</button>
+                </div>
+                <div class="model-list" id="modelList"></div>
+            </div>
         </div>
 
         <div class="grid-2">

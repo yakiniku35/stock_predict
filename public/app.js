@@ -1,5 +1,6 @@
 let currentData = null;
 let currentChart = 'price';
+let currentForecastHorizon = 7;
 
 const API = {
     stock: '/api/stock_insight',
@@ -19,7 +20,7 @@ async function analyze() {
     
     try {
         const [stockData, newsData] = await Promise.all([
-            fetchStock(ticker, period),
+            fetchStock(ticker, period, currentForecastHorizon),
             fetchNews(ticker, 50)
         ]);
         
@@ -35,8 +36,8 @@ async function analyze() {
     }
 }
 
-async function fetchStock(ticker, period) {
-    const res = await fetch(`${API.stock}?ticker=${ticker}&period=${period}&interval=1d`);
+async function fetchStock(ticker, period, forecastHorizon = 7) {
+    const res = await fetch(`${API.stock}?ticker=${ticker}&period=${period}&interval=1d&forecast_horizon=${forecastHorizon}`);
     if (!res.ok) throw new Error('無法獲取股價');
     const data = await res.json();
 
@@ -45,6 +46,20 @@ async function fetchStock(ticker, period) {
     const changeDetail = data.price_change_detail || calculatePriceChanges(prices);
 
     return { ...data, indicators, changeDetail };
+}
+
+async function refreshForecastHorizon(days) {
+    currentForecastHorizon = days;
+    if (!currentData) return;
+    const ticker = currentData.ticker;
+    const period = document.getElementById('period').value;
+    try {
+        const stockData = await fetchStock(ticker, period, currentForecastHorizon);
+        currentData = { ...currentData, stockData };
+        render(currentData);
+    } catch (error) {
+        console.error(error);
+    }
 }
 
 async function fetchNews(ticker, max) {
@@ -301,7 +316,71 @@ function render({ ticker, stockData, newsData }) {
     // 繪製圖表
     drawMainChart(ticker, prices, stockData.indicators);
     drawIndicatorChart(ticker, prices, stockData.indicators);
+    renderCompanyOverview(stockData.company_overview);
+    renderModelPredictions(stockData.model_forecasts);
     renderNews(newsData.news);
+}
+
+function renderCompanyOverview(overview) {
+    const el = document.getElementById('companyOverview');
+    if (!el) return;
+    if (!overview) {
+        el.innerHTML = '<div><span class="label">無資料:</span> --</div>';
+        return;
+    }
+
+    const fmtNum = (v) => (v === null || v === undefined ? '--' : Number(v).toLocaleString());
+    const fmtPct = (v) => (v === null || v === undefined ? '--' : `${(Number(v) * 100).toFixed(2)}%`);
+
+    el.innerHTML = `
+        <div><span class="label">公司:</span>${overview.name || '--'}</div>
+        <div><span class="label">代號:</span>${overview.symbol || '--'}</div>
+        <div><span class="label">Sector:</span>${overview.sector || '--'}</div>
+        <div><span class="label">Industry:</span>${overview.industry || '--'}</div>
+        <div><span class="label">市值:</span>${fmtNum(overview.market_cap)}</div>
+        <div><span class="label">本益比:</span>${overview.trailing_pe ?? '--'}</div>
+        <div><span class="label">Forward PE:</span>${overview.forward_pe ?? '--'}</div>
+        <div><span class="label">EPS:</span>${overview.eps ?? '--'}</div>
+        <div><span class="label">ROE:</span>${fmtPct(overview.roe)}</div>
+        <div><span class="label">Profit Margin:</span>${fmtPct(overview.profit_margin)}</div>
+        <div><span class="label">Debt/Equity:</span>${overview.debt_to_equity ?? '--'}</div>
+        <div><span class="label">Dividend Yield:</span>${fmtPct(overview.dividend_yield)}</div>
+    `;
+}
+
+function renderModelPredictions(modelForecasts) {
+    const listEl = document.getElementById('modelList');
+    const statusEl = document.getElementById('trainingStatus');
+    const forecastPriceEl = document.getElementById('forecastPrice');
+    if (!listEl || !statusEl || !forecastPriceEl) return;
+
+    if (!modelForecasts || !modelForecasts.predictions) {
+        statusEl.innerHTML = '<span class="dot running"></span>Training...';
+        forecastPriceEl.textContent = '--';
+        listEl.innerHTML = '';
+        return;
+    }
+
+    statusEl.innerHTML = '<span class="dot done"></span>Training Completed';
+    forecastPriceEl.textContent = `Forecast Horizon ${modelForecasts.horizon_days} Days`;
+
+    const order = ['ensemble', 'lstm', 'prophet_lite', 'gru', 'cnn_lstm', 'arima', 'ema', 'linear_regression'];
+    const rows = order
+        .map((key) => modelForecasts.predictions[key])
+        .filter(Boolean)
+        .map((item) => {
+            const changeClass = item.change_pct >= 0 ? 'positive' : 'negative';
+            const sign = item.change_pct >= 0 ? '+' : '';
+            const best = item.model === 'Ensemble' ? 'best' : '';
+            return `
+                <div class="model-row ${best}">
+                    <div class="model-name">${item.model}</div>
+                    <div class="model-price">$${Number(item.predicted_price).toFixed(2)}</div>
+                    <div class="model-change ${changeClass}">${sign}${Number(item.change_pct).toFixed(2)}%</div>
+                </div>
+            `;
+        });
+    listEl.innerHTML = rows.join('');
 }
 
 function drawMainChart(ticker, prices, indicators) {
@@ -336,7 +415,22 @@ function drawMainChart(ticker, prices, indicators) {
             fillcolor: 'rgba(148, 163, 184, 0.12)'
         };
 
-        Plotly.newPlot('mainChart', [trace, ma5, ma20, ma60, ma120, ma240, bbUpper, bbLower], getLayout(), { displayModeBar: false, responsive: true });
+        const traces = [trace, ma5, ma20, ma60, ma120, ma240, bbUpper, bbLower];
+        const modelForecasts = currentData?.stockData?.model_forecasts;
+        if (modelForecasts?.predictions?.ensemble) {
+            const lastDate = new Date(dates[dates.length - 1]);
+            const forecastDate = new Date(lastDate);
+            forecastDate.setDate(forecastDate.getDate() + Number(modelForecasts.horizon_days || 7));
+            traces.push({
+                x: [dates[dates.length - 1], forecastDate.toISOString().split('T')[0]],
+                y: [prices[prices.length - 1].close, modelForecasts.predictions.ensemble.predicted_price],
+                name: `Forecast ${modelForecasts.horizon_days}D`,
+                line: { color: '#f59e0b', width: 2, dash: 'dash' },
+                mode: 'lines+markers'
+            });
+        }
+
+        Plotly.newPlot('mainChart', traces, getLayout(), { displayModeBar: false, responsive: true });
         
     } else if (currentChart === 'macd') {
         const macdLine = { x: dates, y: indicators.macd.macd, name: 'MACD', line: { color: '#0ea5e9' } };
@@ -451,10 +545,10 @@ function renderNews(news) {
     }).join('');
 }
 
-function switchChart(type) {
+function switchChart(type, evt) {
     currentChart = type;
     document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-    event.target.classList.add('active');
+    if (evt?.target) evt.target.classList.add('active');
     
     if (currentData) {
         drawMainChart(currentData.ticker, currentData.stockData.stock_price_trends, currentData.stockData.indicators);
@@ -471,4 +565,17 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('ticker').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') analyze();
     });
+
+    const horizonTabs = document.getElementById('horizonTabs');
+    if (horizonTabs) {
+        horizonTabs.addEventListener('click', async (e) => {
+            const target = e.target;
+            if (!(target instanceof HTMLElement)) return;
+            if (!target.classList.contains('horizon-tab')) return;
+            const days = Number(target.dataset.days || '7');
+            document.querySelectorAll('.horizon-tab').forEach((tab) => tab.classList.remove('active'));
+            target.classList.add('active');
+            await refreshForecastHorizon(days);
+        });
+    }
 });
