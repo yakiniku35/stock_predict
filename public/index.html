@@ -148,10 +148,13 @@
             border: 1px solid var(--line);
             border-radius: 8px;
             padding: 0.78rem 0.88rem;
-            min-height: 88px;
+            min-height: 118px;
             box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
             position: relative;
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
         }
 
         .card::after {
@@ -165,17 +168,14 @@
 
         .metric-price {
             min-height: 118px;
-            transform: translateY(0.35rem);
         }
 
         .metric-sentiment {
-            min-height: 92px;
-            transform: translateY(-0.15rem);
+            min-height: 118px;
         }
 
         .metric-rsi {
-            min-height: 80px;
-            transform: translateY(1.15rem);
+            min-height: 118px;
             background:
                 linear-gradient(145deg, rgba(28, 19, 8, 0.92), rgba(8, 16, 28, 0.86)),
                 radial-gradient(circle at 100% 0, rgba(245, 158, 11, 0.14), transparent 7rem);
