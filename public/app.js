@@ -12,6 +12,10 @@ const API = {
     news: '/api/search'
 };
 
+function isRechartsMode() {
+    return !!document.getElementById('rechartsChartRoot');
+}
+
 async function analyze() {
     const ticker = document.getElementById('ticker').value.trim().toUpperCase();
     const period = document.getElementById('period').value;
@@ -319,8 +323,10 @@ function render({ ticker, stockData, newsData }) {
     }
     
     // 繪製圖表
-    if (typeof window.setRechartsSymbol === 'function') {
-        window.setRechartsSymbol(ticker);
+    if (isRechartsMode()) {
+        if (typeof window.setRechartsSymbol === 'function') {
+            window.setRechartsSymbol(ticker);
+        }
     } else {
         drawMainChart(ticker, prices, stockData.indicators);
         renderSubCharts(prices, stockData.indicators);
@@ -657,7 +663,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const initialTicker = document.getElementById('ticker')?.value?.trim()?.toUpperCase();
-    if (initialTicker && typeof window.setRechartsSymbol === 'function') {
+    if (initialTicker && isRechartsMode() && typeof window.setRechartsSymbol === 'function') {
         window.setRechartsSymbol(initialTicker);
     }
 
