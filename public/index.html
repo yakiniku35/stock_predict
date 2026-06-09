@@ -242,6 +242,42 @@
             background: #0ea5e9;
             border-color: #0ea5e9;
         }
+
+        .indicator-toggle {
+            padding: 0.4rem 0.75rem;
+            background: #000;
+            border: 1px solid #334155;
+            border-radius: 999px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            color: #cbd5e1;
+            transition: all 0.2s;
+        }
+
+        .indicator-toggle.active {
+            background: #082f49;
+            border-color: #0ea5e9;
+            color: #7dd3fc;
+        }
+
+        .subcharts-area {
+            margin-top: 0.9rem;
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .subchart-item {
+            border: 1px solid #1f2937;
+            border-radius: 8px;
+            padding: 0.5rem;
+            background: #0b1220;
+        }
+
+        .subchart-title {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-bottom: 0.35rem;
+        }
         
         .news-item {
             padding: 1rem;
@@ -352,15 +388,15 @@
             <div class="chart-header">
                 <div class="chart-title">歷史價格與指標 (1Y)</div>
                 <div class="tabs">
-                    <div class="tab active" onclick="switchChart('price', event)">價格</div>
-                    <div class="tab" onclick="switchChart('macd', event)">MACD</div>
-                    <div class="tab" onclick="switchChart('rsi', event)">RSI</div>
-                    <div class="tab" onclick="switchChart('kd', event)">KD</div>
-                    <div class="tab" onclick="switchChart('bias', event)">BIAS</div>
-                    <div class="tab" onclick="switchChart('ad', event)">AD</div>
+                    <button type="button" class="indicator-toggle" data-subchart="macd">MACD</button>
+                    <button type="button" class="indicator-toggle" data-subchart="rsi">RSI</button>
+                    <button type="button" class="indicator-toggle" data-subchart="kd">KD</button>
+                    <button type="button" class="indicator-toggle" data-subchart="bias">BIAS</button>
+                    <button type="button" class="indicator-toggle" data-subchart="ad">AD</button>
                 </div>
             </div>
             <div id="mainChart" style="height: 400px;"></div>
+            <div id="subChartsArea" class="subcharts-area" style="display: none;"></div>
         </div>
 
         <div class="two-col">

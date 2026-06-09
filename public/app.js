@@ -1,6 +1,11 @@
 let currentData = null;
-let currentChart = 'price';
 let currentForecastHorizon = 7;
+
+// 'multi': 可同時開啟多個副圖；'single': 互斥，只顯示一個副圖
+const SUBCHART_MODE = 'multi';
+const chartInteractionState = {
+    activeSubcharts: new Set()
+};
 
 const API = {
     stock: '/api/stock_insight',
@@ -315,6 +320,7 @@ function render({ ticker, stockData, newsData }) {
     
     // 繪製圖表
     drawMainChart(ticker, prices, stockData.indicators);
+    renderSubCharts(prices, stockData.indicators);
     drawIndicatorChart(ticker, prices, stockData.indicators);
     renderCompanyOverview(stockData.company_overview);
     renderModelPredictions(stockData.model_forecasts);
@@ -385,54 +391,107 @@ function renderModelPredictions(modelForecasts) {
 
 function drawMainChart(ticker, prices, indicators) {
     const dates = prices.map(p => p.date);
-    
-    if (currentChart === 'price') {
-        const trace = {
-            x: dates,
-            close: prices.map(p => p.close),
-            high: prices.map(p => p.high),
-            low: prices.map(p => p.low),
-            open: prices.map(p => p.open),
-            type: 'candlestick',
-            name: ticker,
-            increasing: { line: { color: '#10b981' } },
-            decreasing: { line: { color: '#ef4444' } }
+
+    const trace = {
+        x: dates,
+        close: prices.map(p => p.close),
+        high: prices.map(p => p.high),
+        low: prices.map(p => p.low),
+        open: prices.map(p => p.open),
+        type: 'candlestick',
+        name: ticker,
+        increasing: { line: { color: '#10b981' } },
+        decreasing: { line: { color: '#ef4444' } }
+    };
+
+    const ma5 = { x: dates, y: indicators.sma.sma5, name: 'SMA 5', line: { color: '#0ea5e9', width: 1 } };
+    const ma20 = { x: dates, y: indicators.sma.sma20, name: 'SMA 20', line: { color: '#f59e0b', width: 1 } };
+    const ma60 = { x: dates, y: indicators.sma.sma60, name: 'SMA 60', line: { color: '#a78bfa', width: 1 } };
+    const ma120 = { x: dates, y: indicators.sma.sma120, name: 'SMA 120', line: { color: '#22d3ee', width: 1 } };
+    const ma240 = { x: dates, y: indicators.sma.sma240, name: 'SMA 240', line: { color: '#eab308', width: 1 } };
+
+    const bbUpper = { x: dates, y: indicators.bb.upper, name: 'BB Upper', line: { color: '#94a3b8', width: 1, dash: 'dot' } };
+    const bbLower = {
+        x: dates,
+        y: indicators.bb.lower,
+        name: 'BB Lower',
+        line: { color: '#94a3b8', width: 1, dash: 'dot' },
+        fill: 'tonexty',
+        fillcolor: 'rgba(148, 163, 184, 0.12)'
+    };
+
+    const traces = [trace, ma5, ma20, ma60, ma120, ma240, bbUpper, bbLower];
+    const modelForecasts = currentData?.stockData?.model_forecasts;
+    if (modelForecasts?.predictions?.ensemble) {
+        const lastDate = new Date(dates[dates.length - 1]);
+        const forecastDate = new Date(lastDate);
+        forecastDate.setDate(forecastDate.getDate() + Number(modelForecasts.horizon_days || 7));
+        traces.push({
+            x: [dates[dates.length - 1], forecastDate.toISOString().split('T')[0]],
+            y: [prices[prices.length - 1].close, modelForecasts.predictions.ensemble.predicted_price],
+            name: `Forecast ${modelForecasts.horizon_days}D`,
+            line: { color: '#f59e0b', width: 2, dash: 'dash' },
+            mode: 'lines+markers'
+        });
+    }
+
+    Plotly.newPlot('mainChart', traces, getLayout(), { displayModeBar: false, responsive: true });
+}
+
+function getSubchartLayout(title) {
+    return {
+        paper_bgcolor: '#0b1220',
+        plot_bgcolor: '#020617',
+        font: { color: '#94a3b8', family: 'system-ui' },
+        xaxis: { gridcolor: '#1f2937', showgrid: true },
+        yaxis: { gridcolor: '#1f2937', showgrid: true, side: 'right' },
+        margin: { l: 40, r: 56, t: 18, b: 34 },
+        height: 220,
+        showlegend: true,
+        legend: { x: 0, y: 1, bgcolor: 'transparent', font: { size: 10 } },
+        hovermode: 'x unified',
+        title: { text: title, font: { size: 12, color: '#cbd5e1' } }
+    };
+}
+
+function renderSubCharts(prices, indicators) {
+    const area = document.getElementById('subChartsArea');
+    if (!area) return;
+
+    const active = Array.from(chartInteractionState.activeSubcharts);
+    if (active.length === 0) {
+        area.style.display = 'none';
+        area.innerHTML = '';
+        return;
+    }
+
+    area.style.display = 'grid';
+    area.innerHTML = active.map((name) => {
+        const titleMap = {
+            macd: 'MACD',
+            rsi: 'RSI',
+            kd: 'KD',
+            bias: 'BIAS',
+            ad: 'AD'
         };
+        return `
+            <div class="subchart-item">
+                <div class="subchart-title">${titleMap[name] || name.toUpperCase()}</div>
+                <div id="subchart-${name}" style="height: 220px;"></div>
+            </div>
+        `;
+    }).join('');
 
-        const ma5 = { x: dates, y: indicators.sma.sma5, name: 'SMA 5', line: { color: '#0ea5e9', width: 1 } };
-        const ma20 = { x: dates, y: indicators.sma.sma20, name: 'SMA 20', line: { color: '#f59e0b', width: 1 } };
-        const ma60 = { x: dates, y: indicators.sma.sma60, name: 'SMA 60', line: { color: '#a78bfa', width: 1 } };
-        const ma120 = { x: dates, y: indicators.sma.sma120, name: 'SMA 120', line: { color: '#22d3ee', width: 1 } };
-        const ma240 = { x: dates, y: indicators.sma.sma240, name: 'SMA 240', line: { color: '#eab308', width: 1 } };
+    active.forEach((name) => {
+        drawSubChart(name, prices, indicators);
+    });
+}
 
-        const bbUpper = { x: dates, y: indicators.bb.upper, name: 'BB Upper', line: { color: '#94a3b8', width: 1, dash: 'dot' } };
-        const bbLower = {
-            x: dates,
-            y: indicators.bb.lower,
-            name: 'BB Lower',
-            line: { color: '#94a3b8', width: 1, dash: 'dot' },
-            fill: 'tonexty',
-            fillcolor: 'rgba(148, 163, 184, 0.12)'
-        };
+function drawSubChart(type, prices, indicators) {
+    const targetId = `subchart-${type}`;
+    const dates = prices.map(p => p.date);
 
-        const traces = [trace, ma5, ma20, ma60, ma120, ma240, bbUpper, bbLower];
-        const modelForecasts = currentData?.stockData?.model_forecasts;
-        if (modelForecasts?.predictions?.ensemble) {
-            const lastDate = new Date(dates[dates.length - 1]);
-            const forecastDate = new Date(lastDate);
-            forecastDate.setDate(forecastDate.getDate() + Number(modelForecasts.horizon_days || 7));
-            traces.push({
-                x: [dates[dates.length - 1], forecastDate.toISOString().split('T')[0]],
-                y: [prices[prices.length - 1].close, modelForecasts.predictions.ensemble.predicted_price],
-                name: `Forecast ${modelForecasts.horizon_days}D`,
-                line: { color: '#f59e0b', width: 2, dash: 'dash' },
-                mode: 'lines+markers'
-            });
-        }
-
-        Plotly.newPlot('mainChart', traces, getLayout(), { displayModeBar: false, responsive: true });
-        
-    } else if (currentChart === 'macd') {
+    if (type === 'macd') {
         const macdLine = { x: dates, y: indicators.macd.macd, name: 'MACD', line: { color: '#0ea5e9' } };
         const signal = { x: dates, y: indicators.macd.signal, name: 'Signal', line: { color: '#f59e0b' } };
         const hist = {
@@ -442,34 +501,71 @@ function drawMainChart(ticker, prices, indicators) {
             type: 'bar',
             marker: { color: indicators.macd.histogram.map(v => v >= 0 ? '#10b981' : '#ef4444') }
         };
-        
-        Plotly.newPlot('mainChart', [hist, macdLine, signal], getLayout(), { displayModeBar: false, responsive: true });
-        
-    } else if (currentChart === 'rsi') {
-        const rsiTrace = { x: dates, y: indicators.rsi, name: 'RSI', line: { color: '#0ea5e9' } };
-        const upper = { x: dates, y: Array(dates.length).fill(70), name: '超買', line: { color: '#ef4444', dash: 'dash', width: 1 } };
-        const lower = { x: dates, y: Array(dates.length).fill(30), name: '超賣', line: { color: '#10b981', dash: 'dash', width: 1 } };
-        
-        Plotly.newPlot('mainChart', [rsiTrace, upper, lower], getLayout(), { displayModeBar: false, responsive: true });
-        
-    } else if (currentChart === 'kd') {
-        const kTrace = { x: dates, y: indicators.kd.k, name: 'K', line: { color: '#0ea5e9' } };
-        const dTrace = { x: dates, y: indicators.kd.d, name: 'D', line: { color: '#f59e0b' } };
-        
-        Plotly.newPlot('mainChart', [kTrace, dTrace], getLayout(), { displayModeBar: false, responsive: true });
+        Plotly.newPlot(targetId, [hist, macdLine, signal], getSubchartLayout('MACD'), { displayModeBar: false, responsive: true });
+        return;
+    }
 
-    } else if (currentChart === 'bias') {
+    if (type === 'rsi') {
+        const rsiTrace = { x: dates, y: indicators.rsi, name: 'RSI', line: { color: '#a855f7' } };
+        const upper = { x: dates, y: Array(dates.length).fill(70), name: '70', line: { color: '#ef4444', dash: 'dash', width: 1 } };
+        const lower = { x: dates, y: Array(dates.length).fill(30), name: '30', line: { color: '#10b981', dash: 'dash', width: 1 } };
+        Plotly.newPlot(targetId, [rsiTrace, upper, lower], getSubchartLayout('RSI'), { displayModeBar: false, responsive: true });
+        return;
+    }
+
+    if (type === 'kd') {
+        const kTrace = { x: dates, y: indicators.kd.k, name: 'K', line: { color: '#facc15' } };
+        const dTrace = { x: dates, y: indicators.kd.d, name: 'D', line: { color: '#a855f7' } };
+        Plotly.newPlot(targetId, [kTrace, dTrace], getSubchartLayout('KD'), { displayModeBar: false, responsive: true });
+        return;
+    }
+
+    if (type === 'bias') {
         const biasTrace = { x: dates, y: indicators.bias, name: 'BIAS 20', line: { color: '#f97316' } };
-        const zeroLine = { x: dates, y: Array(dates.length).fill(0), name: '基準 0%', line: { color: '#64748b', dash: 'dash', width: 1 } };
+        const zeroLine = { x: dates, y: Array(dates.length).fill(0), name: '0%', line: { color: '#64748b', dash: 'dash', width: 1 } };
+        Plotly.newPlot(targetId, [biasTrace, zeroLine], getSubchartLayout('BIAS'), { displayModeBar: false, responsive: true });
+        return;
+    }
 
-        Plotly.newPlot('mainChart', [biasTrace, zeroLine], getLayout(), { displayModeBar: false, responsive: true });
-
-    } else if (currentChart === 'ad') {
+    if (type === 'ad') {
         const adMillion = indicators.ad.map(v => (v === null ? null : v / 1000000));
         const adTrace = { x: dates, y: adMillion, name: 'A/D (M)', line: { color: '#22c55e' } };
-
-        Plotly.newPlot('mainChart', [adTrace], getLayout(), { displayModeBar: false, responsive: true });
+        Plotly.newPlot(targetId, [adTrace], getSubchartLayout('AD'), { displayModeBar: false, responsive: true });
     }
+}
+
+function toggleSubchart(indicator) {
+    if (SUBCHART_MODE === 'single') {
+        if (chartInteractionState.activeSubcharts.has(indicator) && chartInteractionState.activeSubcharts.size === 1) {
+            chartInteractionState.activeSubcharts.clear();
+        } else {
+            chartInteractionState.activeSubcharts.clear();
+            chartInteractionState.activeSubcharts.add(indicator);
+        }
+    } else {
+        if (chartInteractionState.activeSubcharts.has(indicator)) {
+            chartInteractionState.activeSubcharts.delete(indicator);
+        } else {
+            chartInteractionState.activeSubcharts.add(indicator);
+        }
+    }
+
+    updateSubchartToggleStyles();
+
+    if (currentData) {
+        const prices = currentData.stockData.stock_price_trends;
+        const indicators = currentData.stockData.indicators;
+        renderSubCharts(prices, indicators);
+    }
+}
+
+function updateSubchartToggleStyles() {
+    const buttons = document.querySelectorAll('[data-subchart]');
+    buttons.forEach((btn) => {
+        const key = btn.getAttribute('data-subchart');
+        if (!key) return;
+        btn.classList.toggle('active', chartInteractionState.activeSubcharts.has(key));
+    });
 }
 
 function drawIndicatorChart(ticker, prices, indicators) {
@@ -545,16 +641,6 @@ function renderNews(news) {
     }).join('');
 }
 
-function switchChart(type, evt) {
-    currentChart = type;
-    document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-    if (evt?.target) evt.target.classList.add('active');
-    
-    if (currentData) {
-        drawMainChart(currentData.ticker, currentData.stockData.stock_price_trends, currentData.stockData.indicators);
-    }
-}
-
 function showLoading(show) {
     document.getElementById('loading').classList.toggle('active', show);
 }
@@ -565,6 +651,17 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('ticker').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') analyze();
     });
+
+    const subchartButtons = document.querySelectorAll('[data-subchart]');
+    subchartButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const indicator = btn.getAttribute('data-subchart');
+            if (!indicator) return;
+            toggleSubchart(indicator);
+        });
+    });
+
+    updateSubchartToggleStyles();
 
     const horizonTabs = document.getElementById('horizonTabs');
     if (horizonTabs) {
