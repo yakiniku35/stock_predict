@@ -89,8 +89,8 @@ async function fetchStock(ticker, period, interval = '1d', forecastHorizon = 7) 
         forecast_horizon: String(forecastHorizon)
     });
     const res = await fetch(`${API.stock}?${query.toString()}`);
-    if (!res.ok) throw new Error('無法獲取股價');
     const data = await res.json();
+    if (!res.ok) throw new Error(data.message || data.error || '無法獲取股價');
 
     const prices = data.stock_price_trends;
     const indicators = data.technical_indicators || calculateIndicators(prices);

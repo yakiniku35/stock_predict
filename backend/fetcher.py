@@ -33,15 +33,23 @@ class StockDataFetcher:
 
             # 資料清洗 (Data Cleaning)
             df = df.reset_index()
-            # 統一日期格式為 YYYY-MM-DD
-            df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
+
+            date_col = "Datetime" if "Datetime" in df.columns else "Date"
+            if date_col not in df.columns:
+                return None
+
+            date_values = pd.to_datetime(df[date_col], errors="coerce")
+            if interval in {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"}:
+                df["display_date"] = date_values.dt.strftime("%Y-%m-%d %H:%M")
+            else:
+                df["display_date"] = date_values.dt.strftime("%Y-%m-%d")
 
             # 轉化為前端 Plotly 繪圖所需之標準欄位結構
             prices_list = []
             for _, row in df.iterrows():
                 prices_list.append(
                     {
-                        "date": row["Date"],
+                        "date": row["display_date"],
                         "open": round(row["Open"], 2),
                         "high": round(row["High"], 2),
                         "low": round(row["Low"], 2),
