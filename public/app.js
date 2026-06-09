@@ -1,5 +1,6 @@
 let currentData = null;
 let currentForecastHorizon = 7;
+let chartRefreshTimer = null;
 
 // 'multi': 可同時開啟多個副圖；'single': 互斥，只顯示一個副圖
 const SUBCHART_MODE = 'multi';
@@ -112,6 +113,27 @@ async function refreshForecastHorizon(days) {
     } catch (error) {
         console.error(error);
     }
+}
+
+function scheduleChartRefresh() {
+    if (!currentData) return;
+    window.clearTimeout(chartRefreshTimer);
+    chartRefreshTimer = window.setTimeout(async () => {
+        const ticker = currentData.ticker;
+        const period = document.getElementById('period').value;
+        const interval = getSelectedInterval();
+
+        try {
+            showLoading(true);
+            const stockData = await fetchStock(ticker, period, interval, currentForecastHorizon);
+            currentData = { ...currentData, stockData };
+            render(currentData);
+        } catch (error) {
+            alert('錯誤: ' + error.message);
+        } finally {
+            showLoading(false);
+        }
+    }, 180);
 }
 
 async function fetchNews(ticker, max) {
@@ -439,6 +461,7 @@ function renderModelPredictions(modelForecasts) {
 
 function drawMainChart(ticker, prices, indicators) {
     const dates = prices.map(p => p.date);
+    const xAxisDates = [...dates];
 
     const trace = {
         x: dates,
@@ -481,8 +504,10 @@ function drawMainChart(ticker, prices, indicators) {
         const lastDate = new Date(dates[dates.length - 1]);
         const forecastDate = new Date(lastDate);
         forecastDate.setDate(forecastDate.getDate() + Number(modelForecasts.horizon_days || 7));
+        const forecastDateText = forecastDate.toISOString().split('T')[0];
+        xAxisDates.push(forecastDateText);
         traces.push({
-            x: [dates[dates.length - 1], forecastDate.toISOString().split('T')[0]],
+            x: [dates[dates.length - 1], forecastDateText],
             y: [prices[prices.length - 1].close, modelForecasts.predictions.ensemble.predicted_price],
             name: `Forecast ${modelForecasts.horizon_days}D`,
             line: { color: '#f59e0b', width: 2, dash: 'dash' },
@@ -490,8 +515,59 @@ function drawMainChart(ticker, prices, indicators) {
         });
     }
 
-    Plotly.newPlot('mainChart', traces, getLayout(false, 620), { displayModeBar: false, responsive: true })
-        .then(() => bindSyncedHover('mainChart'));
+    Plotly.newPlot('mainChart', traces, getLayout(false, 620, xAxisDates), { displayModeBar: false, responsive: true })
+        .then(() => {
+            bindSyncedHover('mainChart');
+            fitPlotToContainer('mainChart');
+        });
+}
+
+function getChartTickValues(dates) {
+    if (!Array.isArray(dates) || dates.length === 0) return [];
+    const targetTicks = window.innerWidth < 768 ? 4 : 8;
+    const step = Math.max(1, Math.ceil(dates.length / targetTicks));
+    const ticks = dates.filter((_, index) => index % step === 0);
+    const last = dates[dates.length - 1];
+    if (ticks[ticks.length - 1] !== last) ticks.push(last);
+    return ticks;
+}
+
+function getFittedXAxis(dates, includeRangeSlider = false) {
+    const xaxis = {
+        type: 'category',
+        categoryorder: 'array',
+        categoryarray: dates,
+        gridcolor: '#1e293b',
+        showgrid: true,
+        automargin: true,
+        tickmode: 'array',
+        tickvals: getChartTickValues(dates),
+        tickangle: 0,
+        range: dates.length > 0 ? [-0.5, dates.length - 0.5] : undefined
+    };
+
+    if (includeRangeSlider) {
+        xaxis.rangeslider = {
+            visible: true,
+            bgcolor: '#0b1220',
+            bordercolor: '#1e293b'
+        };
+    }
+
+    return xaxis;
+}
+
+function fitPlotToContainer(chartId) {
+    const chart = document.getElementById(chartId);
+    if (!chart) return;
+
+    requestAnimationFrame(() => {
+        try {
+            Plotly.Plots.resize(chart);
+        } catch (error) {
+            console.warn('Unable to resize chart:', chartId, error);
+        }
+    });
 }
 
 function getVisibleChartIds() {
@@ -570,12 +646,12 @@ function bindSyncedHover(chartId) {
     chart.on('plotly_unhover', chart._stockSenseUnhoverHandler);
 }
 
-function getSubchartLayout(title) {
+function getSubchartLayout(title, dates) {
     return {
         paper_bgcolor: '#0b1220',
         plot_bgcolor: '#020617',
         font: { color: '#94a3b8', family: 'system-ui' },
-        xaxis: { gridcolor: '#1f2937', showgrid: true },
+        xaxis: getFittedXAxis(dates, false),
         yaxis: { gridcolor: '#1f2937', showgrid: true, side: 'right' },
         margin: { l: 40, r: 56, t: 18, b: 34 },
         height: 220,
@@ -633,8 +709,11 @@ function drawSubChart(type, prices, indicators) {
             type: 'bar',
             marker: { color: indicators.macd.histogram.map(v => v >= 0 ? '#10b981' : '#ef4444') }
         };
-        Plotly.newPlot(targetId, [hist, macdLine, signal], getSubchartLayout('MACD'), { displayModeBar: false, responsive: true })
-            .then(() => bindSyncedHover(targetId));
+        Plotly.newPlot(targetId, [hist, macdLine, signal], getSubchartLayout('MACD', dates), { displayModeBar: false, responsive: true })
+            .then(() => {
+                bindSyncedHover(targetId);
+                fitPlotToContainer(targetId);
+            });
         return;
     }
 
@@ -642,32 +721,44 @@ function drawSubChart(type, prices, indicators) {
         const rsiTrace = { x: dates, y: indicators.rsi, name: 'RSI', line: { color: '#a855f7' } };
         const upper = { x: dates, y: Array(dates.length).fill(70), name: '70', line: { color: '#ef4444', dash: 'dash', width: 1 } };
         const lower = { x: dates, y: Array(dates.length).fill(30), name: '30', line: { color: '#10b981', dash: 'dash', width: 1 } };
-        Plotly.newPlot(targetId, [rsiTrace, upper, lower], getSubchartLayout('RSI'), { displayModeBar: false, responsive: true })
-            .then(() => bindSyncedHover(targetId));
+        Plotly.newPlot(targetId, [rsiTrace, upper, lower], getSubchartLayout('RSI', dates), { displayModeBar: false, responsive: true })
+            .then(() => {
+                bindSyncedHover(targetId);
+                fitPlotToContainer(targetId);
+            });
         return;
     }
 
     if (type === 'kd') {
         const kTrace = { x: dates, y: indicators.kd.k, name: 'K', line: { color: '#facc15' } };
         const dTrace = { x: dates, y: indicators.kd.d, name: 'D', line: { color: '#a855f7' } };
-        Plotly.newPlot(targetId, [kTrace, dTrace], getSubchartLayout('KD'), { displayModeBar: false, responsive: true })
-            .then(() => bindSyncedHover(targetId));
+        Plotly.newPlot(targetId, [kTrace, dTrace], getSubchartLayout('KD', dates), { displayModeBar: false, responsive: true })
+            .then(() => {
+                bindSyncedHover(targetId);
+                fitPlotToContainer(targetId);
+            });
         return;
     }
 
     if (type === 'bias') {
         const biasTrace = { x: dates, y: indicators.bias, name: 'BIAS 20', line: { color: '#f97316' } };
         const zeroLine = { x: dates, y: Array(dates.length).fill(0), name: '0%', line: { color: '#64748b', dash: 'dash', width: 1 } };
-        Plotly.newPlot(targetId, [biasTrace, zeroLine], getSubchartLayout('BIAS'), { displayModeBar: false, responsive: true })
-            .then(() => bindSyncedHover(targetId));
+        Plotly.newPlot(targetId, [biasTrace, zeroLine], getSubchartLayout('BIAS', dates), { displayModeBar: false, responsive: true })
+            .then(() => {
+                bindSyncedHover(targetId);
+                fitPlotToContainer(targetId);
+            });
         return;
     }
 
     if (type === 'ad') {
         const adMillion = indicators.ad.map(v => (v === null ? null : v / 1000000));
         const adTrace = { x: dates, y: adMillion, name: 'A/D (M)', line: { color: '#22c55e' } };
-        Plotly.newPlot(targetId, [adTrace], getSubchartLayout('AD'), { displayModeBar: false, responsive: true })
-            .then(() => bindSyncedHover(targetId));
+        Plotly.newPlot(targetId, [adTrace], getSubchartLayout('AD', dates), { displayModeBar: false, responsive: true })
+            .then(() => {
+                bindSyncedHover(targetId);
+                fitPlotToContainer(targetId);
+            });
     }
 }
 
@@ -760,15 +851,19 @@ function drawIndicatorChart(ticker, prices, indicators) {
         }
     };
 
-    Plotly.newPlot('indChart', [heatBar], getLayout(true), { displayModeBar: false, responsive: true });
+    Plotly.newPlot('indChart', [heatBar], getLayout(true), { displayModeBar: false, responsive: true })
+        .then(() => fitPlotToContainer('indChart'));
 }
 
-function getLayout(small = false, customHeight = null) {
+function getLayout(small = false, customHeight = null, dates = null) {
     return {
         paper_bgcolor: '#0f172a',
         plot_bgcolor: '#08111f',
         font: { color: '#94a3b8', family: 'Inter, system-ui' },
-        xaxis: { gridcolor: '#1e293b', showgrid: true, rangeslider: { visible: !small, bgcolor: '#0b1220', bordercolor: '#1e293b' } },
+        autosize: true,
+        xaxis: Array.isArray(dates)
+            ? getFittedXAxis(dates, !small)
+            : { gridcolor: '#1e293b', showgrid: true, rangeslider: { visible: !small, bgcolor: '#0b1220', bordercolor: '#1e293b' } },
         yaxis: { gridcolor: '#1e293b', showgrid: true, side: 'right' },
         margin: { l: 40, r: 64, t: small ? 10 : 18, b: small ? 36 : 52 },
         height: customHeight || (small ? 300 : 400),
@@ -809,6 +904,11 @@ function showLoading(show) {
     document.getElementById('loading').classList.toggle('active', show);
 }
 
+function resizeVisibleCharts() {
+    getVisibleChartIds().forEach(fitPlotToContainer);
+    fitPlotToContainer('indChart');
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
     console.log('StockSense loaded');
@@ -822,9 +922,17 @@ document.addEventListener('DOMContentLoaded', () => {
         getEffectivePeriod(periodEl?.value || '1y', intervalEl?.value || '1d'),
         intervalEl?.value || '1d'
     );
-    periodEl?.addEventListener('change', updateInitialRange);
-    intervalEl?.addEventListener('change', updateInitialRange);
+    periodEl?.addEventListener('change', () => {
+        updateInitialRange();
+        scheduleChartRefresh();
+    });
+    intervalEl?.addEventListener('change', () => {
+        updateInitialRange();
+        scheduleChartRefresh();
+    });
     updateInitialRange();
+
+    window.addEventListener('resize', resizeVisibleCharts);
 
     const overlayButtons = document.querySelectorAll('[data-overlay]');
     overlayButtons.forEach((btn) => {
