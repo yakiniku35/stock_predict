@@ -47,6 +47,7 @@ python -m crawler.news_scraper \
   --config crawler/news_sources.json \
   --output data/raw/news_latest.jsonl \
   --ticker 2330 \
+  --content-extract-mode auto \
   --max-articles 200
 ```
 
@@ -57,6 +58,10 @@ Common flags:
 - `--ticker`: set default stock ticker for each record.
 - `--query`: dynamic query for sources with `{query}` / `{query_encoded}` placeholders.
 - `--per-source-max-items`: cap records per source for throughput/source balance.
+- `--content-extract-mode`: `source` | `auto` | `html` | `r.jina.ai` | `markdown.new`.
+  - `auto` tries `r.jina.ai` and `markdown.new` to get cleaner article body, then falls back to HTML selector parsing.
+- `--disable-content-extract-fallback`: disable HTML fallback after remote extraction failure.
+- `--content-extract-timeout`: override timeout (seconds) for remote extraction.
 - `--summary-output`: write run-level crawler summary JSON.
 
 Output schema (one JSON object per line):
@@ -79,6 +84,14 @@ Output schema (one JSON object per line):
   --model-type lexicon \
   --workers 4
 ```
+
+Sentiment score scale:
+
+- `100`: super positive
+- `0`: neutral
+- `-100`: super negative
+
+Default lexicon thresholds are `20` (positive) and `-20` (negative).
 
 ### 2) Build time-bucket features
 

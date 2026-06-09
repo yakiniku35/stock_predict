@@ -59,6 +59,9 @@ class SourceConfig:
 	article_link_exclude: list[str] | None = None
 	ticker_keywords: list[str] | None = None
 	request_headers: dict[str, str] | None = None
+	content_extract_mode: str = "auto"
+	content_extract_fallback: bool = True
+	content_extract_timeout_seconds: int = 25
 
 
 def now_utc_iso() -> str:
@@ -119,6 +122,59 @@ class NewsScraper:
 				time.sleep(1.5 ** attempt)
 		return None
 
+	def _normalize_extract_mode(self, mode: str | None) -> str:
+		value = (mode or "auto").strip().lower()
+		if value in {"r.jina.ai", "rjina", "r_jina_ai", "r-jina-ai"}:
+			return "r.jina.ai"
+		if value in {"markdown.new", "markdown_new", "markdown-new", "markdown"}:
+			return "markdown.new"
+		if value in {"html", "auto"}:
+			return value
+		return "auto"
+
+	def _extract_text_from_markdown(self, markdown_text: str) -> tuple[str, str]:
+		lines = [line.strip() for line in markdown_text.splitlines() if line.strip()]
+		title = ""
+		for line in lines:
+			if line.startswith("#"):
+				title = compact_text(line.lstrip("# "))
+				break
+
+		content = markdown_text
+		content = re.sub(r"```.*?```", " ", content, flags=re.DOTALL)
+		content = re.sub(r"!\[[^\]]*\]\([^\)]*\)", " ", content)
+		content = re.sub(r"\[([^\]]+)\]\([^\)]*\)", r"\1", content)
+		content = re.sub(r"[`*_>#\-]", " ", content)
+		content = compact_text(content)
+		return title, content
+
+	def _extract_from_remote_markdown(self, article_url: str, source: SourceConfig) -> tuple[str, str] | None:
+		mode = self._normalize_extract_mode(source.content_extract_mode)
+		timeout_seconds = max(5, int(source.content_extract_timeout_seconds or source.timeout_seconds or 15))
+
+		providers: list[str] = []
+		if mode == "auto":
+			providers = ["r.jina.ai", "markdown.new"]
+		elif mode == "r.jina.ai":
+			providers = ["r.jina.ai"]
+		elif mode == "markdown.new":
+			providers = ["markdown.new"]
+
+		for provider in providers:
+			if provider == "r.jina.ai":
+				fetch_url = f"https://r.jina.ai/{article_url}"
+			else:
+				fetch_url = f"https://markdown.new/{article_url}"
+
+			remote_text = self._fetch_text(fetch_url, timeout_seconds=timeout_seconds, retry_count=1)
+			if not remote_text:
+				continue
+			title, content = self._extract_text_from_markdown(remote_text)
+			if len(content) >= self.min_content_length:
+				return title, content
+
+		return None
+
 	def _match_keywords(self, text: str, source: SourceConfig) -> bool:
 		keywords = source.ticker_keywords or []
 		if not keywords:
@@ -167,6 +223,21 @@ class NewsScraper:
 		published_at = parse_datetime_or_none(time_raw)
 		return title, published_at, content
 
+	def _extract_article_from_url(self, article_url: str, source: SourceConfig) -> tuple[str, str | None, str]:
+		mode = self._normalize_extract_mode(source.content_extract_mode)
+		if mode != "html":
+			remote_result = self._extract_from_remote_markdown(article_url, source)
+			if remote_result:
+				remote_title, remote_content = remote_result
+				return remote_title, None, remote_content
+			if not source.content_extract_fallback:
+				return "", None, ""
+
+		article_html = self._fetch_text(article_url, source.timeout_seconds, source.retry_count)
+		if not article_html:
+			return "", None, ""
+		return self._extract_article_fields(article_html, source)
+
 	def _scrape_rss(self, source: SourceConfig) -> tuple[list[NewsRecord], dict[str, int]]:
 		stats = {"fetched": 0, "deduped": 0, "filtered": 0, "errors": 0}
 		xml_text = self._fetch_text(source.list_url, source.timeout_seconds, source.retry_count)
@@ -189,13 +260,10 @@ class NewsScraper:
 			description = compact_text(BeautifulSoup(raw_description, "html.parser").get_text(" "))
 			published_at = parse_datetime_or_none(pub_date)
 
-			if source.rss_use_article_content:
-				article_html = self._fetch_text(link, source.timeout_seconds, source.retry_count)
-				if article_html:
-					title_from_page, published_at_from_page, content_from_page = self._extract_article_fields(
-						article_html,
-						source,
-					)
+			need_article_content = source.rss_use_article_content or self._normalize_extract_mode(source.content_extract_mode) != "html"
+			if need_article_content:
+				title_from_page, published_at_from_page, content_from_page = self._extract_article_from_url(link, source)
+				if content_from_page:
 					title = title_from_page or title
 					published_at = published_at_from_page or published_at
 					description = content_from_page or description
@@ -259,12 +327,11 @@ class NewsScraper:
 			if not self._is_allowed_link(link, source):
 				stats["filtered"] += 1
 				continue
-			article_html = self._fetch_text(link, source.timeout_seconds, source.retry_count)
-			if not article_html:
+			title, published_at, content = self._extract_article_from_url(link, source)
+			if not content:
 				stats["errors"] += 1
 				continue
 
-			title, published_at, content = self._extract_article_fields(article_html, source)
 			full_text = compact_text(f"{title} {content}")
 			if not self._is_meaningful_article(title, content):
 				stats["filtered"] += 1
@@ -354,6 +421,9 @@ def load_source_configs(config_path: Path) -> list[SourceConfig]:
 				article_link_exclude=item.get("article_link_exclude"),
 				ticker_keywords=item.get("ticker_keywords"),
 				request_headers=item.get("request_headers"),
+				content_extract_mode=item.get("content_extract_mode", "auto"),
+				content_extract_fallback=bool(item.get("content_extract_fallback", True)),
+				content_extract_timeout_seconds=int(item.get("content_extract_timeout_seconds", 25)),
 			)
 		)
 	return [cfg for cfg in configs if cfg.list_url]
@@ -417,6 +487,15 @@ def apply_runtime_context(source_configs: list[SourceConfig], args: argparse.Nam
 			extra_keywords = [kw.strip() for kw in args.keyword.split(",") if kw.strip()]
 			if extra_keywords:
 				updated.ticker_keywords = list(dict.fromkeys((updated.ticker_keywords or []) + extra_keywords))
+
+		if args.content_extract_mode != "source":
+			updated.content_extract_mode = args.content_extract_mode
+
+		if args.disable_content_extract_fallback:
+			updated.content_extract_fallback = False
+
+		if args.content_extract_timeout > 0:
+			updated.content_extract_timeout_seconds = args.content_extract_timeout
 
 		runtime_sources.append(updated)
 
@@ -489,6 +568,24 @@ def parse_args() -> argparse.Namespace:
 		default=Path("data/raw/news_latest_summary.json"),
 		help="Path to write run summary JSON.",
 	)
+	parser.add_argument(
+		"--content-extract-mode",
+		type=str,
+		choices=["source", "auto", "html", "r.jina.ai", "markdown.new"],
+		default="source",
+		help="How to fetch article body. source=use config, auto=try r.jina.ai + markdown.new then HTML fallback.",
+	)
+	parser.add_argument(
+		"--disable-content-extract-fallback",
+		action="store_true",
+		help="If remote extraction fails, do not fallback to source HTML selectors.",
+	)
+	parser.add_argument(
+		"--content-extract-timeout",
+		type=int,
+		default=0,
+		help="Override timeout (seconds) for r.jina.ai/markdown.new extraction. 0 means use source default.",
+	)
 	return parser.parse_args()
 
 
@@ -519,6 +616,9 @@ def main() -> int:
 			"max_articles": args.max_articles,
 			"per_source_max_items": args.per_source_max_items,
 			"min_content_length": args.min_content_length,
+			"content_extract_mode": args.content_extract_mode,
+			"disable_content_extract_fallback": args.disable_content_extract_fallback,
+			"content_extract_timeout": args.content_extract_timeout,
 		},
 		"sources": summary,
 	}

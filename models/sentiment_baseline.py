@@ -151,8 +151,8 @@ class LexiconSentimentAnalyzer:
         self,
         positive_terms: list[str] | None = None,
         negative_terms: list[str] | None = None,
-        positive_threshold: float = 0.2,
-        negative_threshold: float = -0.2,
+        positive_threshold: float = 20.0,
+        negative_threshold: float = -20.0,
         positive_term_weights: dict[str, float] | None = None,
         negative_term_weights: dict[str, float] | None = None,
         negation_terms: list[str] | None = None,
@@ -281,7 +281,7 @@ class LexiconSentimentAnalyzer:
         normalized = " ".join((text or "").split()).lower()
         if not normalized:
             return SentimentResult(score=0.0, label="neutral")
-        score = round(self._score(normalized), 4)
+        raw_score = float(self._score(normalized))
 
         # Final guardrail: mixed polarity + uncertainty should prefer neutral.
         pos_presence = self._presence_hits(normalized, self.positive_terms)
@@ -289,13 +289,16 @@ class LexiconSentimentAnalyzer:
         uncertainty_hits = self._presence_hits(normalized, self.uncertainty_terms)
         if pos_presence > 0 and neg_presence > 0:
             if uncertainty_hits > 0:
-                score = round(score * 0.35, 4)
-            elif abs(score) < 0.55:
-                score = round(score * 0.65, 4)
-        elif uncertainty_hits >= 2 and abs(score) < 0.7:
-            score = round(score * 0.6, 4)
+                raw_score = raw_score * 0.35
+            elif abs(raw_score) < 0.55:
+                raw_score = raw_score * 0.65
+        elif uncertainty_hits >= 2 and abs(raw_score) < 0.7:
+            raw_score = raw_score * 0.6
 
-        return SentimentResult(score=score, label=self._label(score))
+        scaled_score = max(-100.0, min(100.0, raw_score * 100.0))
+        scaled_score = round(scaled_score, 2)
+
+        return SentimentResult(score=scaled_score, label=self._label(scaled_score))
 
     def predict_many(self, texts: Iterable[str]) -> list[SentimentResult]:
         results: list[SentimentResult] = []

@@ -178,11 +178,11 @@ def build_lstm_model(config: RNNSentimentConfig):
 
 
 def score_from_probs(probs: np.ndarray) -> np.ndarray:
-    # Map probability distribution to [-1, 1] by positive - negative confidence.
+    # Map probability distribution to [-100, 100] by positive - negative confidence.
     positive = probs[:, LABEL_TO_ID["positive"]]
     negative = probs[:, LABEL_TO_ID["negative"]]
-    scores = positive - negative
-    return np.clip(scores, -1.0, 1.0)
+    scores = (positive - negative) * 100.0
+    return np.clip(scores, -100.0, 100.0)
 
 
 def save_artifacts(model, tokenizer, config: RNNSentimentConfig, output_dir: Path) -> Path:
@@ -249,6 +249,6 @@ def predict_many(model, tokenizer, texts: list[str], max_len: int, batch_size: i
     for label, score in zip(labels, scores.tolist()):
         results.append({
             "sentiment_label": label,
-            "sentiment_score": round(float(score), 4),
+            "sentiment_score": round(float(score), 2),
         })
     return results

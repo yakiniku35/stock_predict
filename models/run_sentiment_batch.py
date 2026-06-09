@@ -46,8 +46,8 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("data/normalized/news_with_sentiment_summary.json"),
     )
-    parser.add_argument("--positive-threshold", type=float, default=0.2)
-    parser.add_argument("--negative-threshold", type=float, default=-0.2)
+    parser.add_argument("--positive-threshold", type=float, default=20.0)
+    parser.add_argument("--negative-threshold", type=float, default=-20.0)
     parser.add_argument("--workers", type=int, default=0, help="0 means auto use single-thread batch mode")
     parser.add_argument("--model-type", choices=["lexicon", "rnn"], default="lexicon")
     parser.add_argument("--rnn-model-dir", type=Path, default=Path("models/rnn_registry"))
