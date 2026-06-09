@@ -9,19 +9,23 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
-            font-family: -apple-system, system-ui, sans-serif;
-            background: #000;
+            font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+            background: #080d14;
             color: #fff;
             line-height: 1.5;
         }
         
         .header {
-            background: #111;
-            border-bottom: 1px solid #222;
-            padding: 1rem 2rem;
+            background: rgba(12, 18, 29, 0.88);
+            border-bottom: 1px solid #1d2a3a;
+            padding: 0.95rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            backdrop-filter: blur(18px);
+            position: sticky;
+            top: 0;
+            z-index: 20;
         }
         
         .logo { font-size: 1.5rem; font-weight: 700; }
@@ -29,27 +33,29 @@
         .container {
             max-width: 1600px;
             margin: 0 auto;
-            padding: 2rem;
+            padding: 1.5rem 2rem 2rem;
         }
         
         .search-bar {
-            background: #111;
-            border: 1px solid #333;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(21, 32, 44, 0.96));
+            border: 1px solid #233044;
             border-radius: 8px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
             display: grid;
             grid-template-columns: 2fr 1fr auto;
             gap: 1rem;
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
         }
         
         input, select, button {
-            background: #000;
-            border: 1px solid #333;
+            background: #07111f;
+            border: 1px solid #25364a;
             color: #fff;
             padding: 0.75rem 1rem;
-            border-radius: 4px;
+            border-radius: 8px;
             font-size: 1rem;
+            min-width: 0;
         }
         
         input:focus, select:focus {
@@ -58,7 +64,7 @@
         }
         
         button {
-            background: #0ea5e9;
+            background: #2563eb;
             border: none;
             cursor: pointer;
             font-weight: 600;
@@ -75,44 +81,48 @@
             margin-bottom: 1.5rem;
         }
         
-        .grid-3 {
+        .metric-rail {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1.5rem;
-            margin-bottom: 1.5rem;
+            grid-template-columns: 1.35fr 0.8fr 0.65fr;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
         }
         
         .card {
-            background: #111;
-            border: 1px solid #222;
+            background: #0f172a;
+            border: 1px solid #1d2a3a;
             border-radius: 8px;
-            padding: 1.5rem;
+            padding: 0.85rem 1rem;
+            min-height: 108px;
+            box-shadow: 0 10px 32px rgba(0, 0, 0, 0.22);
         }
         
         .card-title {
-            font-size: 0.875rem;
-            color: #888;
-            margin-bottom: 0.5rem;
+            font-size: 0.72rem;
+            color: #94a3b8;
+            margin-bottom: 0.35rem;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0;
         }
         
         .card-value {
-            font-size: 2rem;
+            font-size: clamp(1.45rem, 2vw, 1.8rem);
             font-weight: 700;
-            margin-bottom: 0.25rem;
+            margin-bottom: 0.2rem;
+            line-height: 1.05;
         }
         
         .card-change {
-            font-size: 0.875rem;
+            font-size: 0.8rem;
         }
 
         .detail-list {
-            margin-top: 0.75rem;
-            font-size: 0.8rem;
+            margin-top: 0.45rem;
+            font-size: 0.74rem;
             color: #9ca3af;
-            display: grid;
-            gap: 0.25rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem 0.75rem;
         }
 
         .two-col {
@@ -203,24 +213,52 @@
         .negative { color: #ef4444; }
         
         .chart-card {
-            background: #111;
-            border: 1px solid #222;
+            background: #0f172a;
+            border: 1px solid #1d2a3a;
             border-radius: 8px;
             padding: 1rem;
             margin-bottom: 1.5rem;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.24);
         }
         
         .chart-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
             margin-bottom: 1rem;
             padding-bottom: 0.75rem;
-            border-bottom: 1px solid #222;
+            border-bottom: 1px solid #1d2a3a;
+            gap: 1rem;
         }
         
         .chart-title {
             font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .chart-subtitle {
+            color: #94a3b8;
+            font-size: 0.78rem;
+            margin-top: 0.2rem;
+        }
+
+        .chart-options {
+            display: grid;
+            gap: 0.5rem;
+            justify-items: end;
+        }
+
+        .option-group {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .option-label {
+            color: #94a3b8;
+            font-size: 0.72rem;
             font-weight: 600;
         }
         
@@ -231,8 +269,8 @@
         
         .tab {
             padding: 0.5rem 1rem;
-            background: #000;
-            border: 1px solid #333;
+            background: #07111f;
+            border: 1px solid #25364a;
             border-radius: 4px;
             cursor: pointer;
             font-size: 0.875rem;
@@ -244,10 +282,11 @@
         }
 
         .indicator-toggle {
-            padding: 0.4rem 0.75rem;
-            background: #000;
-            border: 1px solid #334155;
-            border-radius: 999px;
+            min-height: 32px;
+            padding: 0.38rem 0.72rem;
+            background: #07111f;
+            border: 1px solid #25364a;
+            border-radius: 7px;
             cursor: pointer;
             font-size: 0.78rem;
             color: #cbd5e1;
@@ -255,9 +294,10 @@
         }
 
         .indicator-toggle.active {
-            background: #082f49;
-            border-color: #0ea5e9;
-            color: #7dd3fc;
+            background: #164e63;
+            border-color: #22d3ee;
+            color: #ecfeff;
+            box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.12) inset;
         }
 
         .subcharts-area {
@@ -342,8 +382,28 @@
         }
         
         @media (max-width: 768px) {
-            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+            .header {
+                padding: 0.9rem 1rem;
+            }
+
+            .header > div:last-child {
+                display: none;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .grid-2, .metric-rail { grid-template-columns: 1fr; }
             .search-bar { grid-template-columns: 1fr; }
+            .search-bar input,
+            .search-bar select,
+            .search-bar button {
+                width: 100%;
+            }
+            .chart-header { display: grid; }
+            .chart-options { justify-items: stretch; }
+            .option-group { justify-content: flex-start; }
         }
     </style>
 </head>
@@ -365,7 +425,7 @@
             <button onclick="analyze()" id="btn">分析</button>
         </div>
 
-        <div class="grid-3">
+        <div class="metric-rail">
             <div class="card">
                 <div class="card-title">最新價格與漲跌</div>
                 <div class="card-value" id="price">--</div>
@@ -386,16 +446,28 @@
 
         <div class="chart-card">
             <div class="chart-header">
-                <div class="chart-title">歷史價格與指標 (1Y)</div>
-                <div class="tabs">
-                    <button class="indicator-toggle" data-subchart="macd">MACD</button>
-                    <button class="indicator-toggle" data-subchart="rsi">RSI</button>
-                    <button class="indicator-toggle" data-subchart="kd">KD</button>
-                    <button class="indicator-toggle" data-subchart="bias">BIAS</button>
-                    <button class="indicator-toggle" data-subchart="ad">AD</button>
+                <div>
+                    <div class="chart-title">歷史價格與指標 (1Y)</div>
+                    <div class="chart-subtitle">預設僅顯示股票價格，指標可依需要開啟</div>
+                </div>
+                <div class="chart-options">
+                    <div class="option-group">
+                        <span class="option-label">價格圖選項</span>
+                        <button class="indicator-toggle" data-overlay="ma">均線</button>
+                        <button class="indicator-toggle" data-overlay="bb">布林通道</button>
+                        <button class="indicator-toggle" data-overlay="forecast">預測線</button>
+                    </div>
+                    <div class="option-group">
+                        <span class="option-label">副指標</span>
+                        <button class="indicator-toggle" data-subchart="macd">MACD</button>
+                        <button class="indicator-toggle" data-subchart="rsi">RSI</button>
+                        <button class="indicator-toggle" data-subchart="kd">KD</button>
+                        <button class="indicator-toggle" data-subchart="bias">BIAS</button>
+                        <button class="indicator-toggle" data-subchart="ad">AD</button>
+                    </div>
                 </div>
             </div>
-            <div id="mainChart" style="height: 540px;"></div>
+            <div id="mainChart" style="height: 620px;"></div>
             <div id="subChartsArea" class="subcharts-area" style="display: none;"></div>
         </div>
 

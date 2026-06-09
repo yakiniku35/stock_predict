@@ -4,6 +4,7 @@ let currentForecastHorizon = 7;
 // 'multi': 可同時開啟多個副圖；'single': 互斥，只顯示一個副圖
 const SUBCHART_MODE = 'multi';
 const chartInteractionState = {
+    activeOverlays: new Set(),
     activeSubcharts: new Set()
 };
 
@@ -420,9 +421,16 @@ function drawMainChart(ticker, prices, indicators) {
         fillcolor: 'rgba(148, 163, 184, 0.12)'
     };
 
-    const traces = [trace, ma5, ma20, ma60, ma120, ma240, bbUpper, bbLower];
+    const traces = [trace];
+    if (chartInteractionState.activeOverlays.has('ma')) {
+        traces.push(ma5, ma20, ma60, ma120, ma240);
+    }
+    if (chartInteractionState.activeOverlays.has('bb')) {
+        traces.push(bbUpper, bbLower);
+    }
+
     const modelForecasts = currentData?.stockData?.model_forecasts;
-    if (modelForecasts?.predictions?.ensemble) {
+    if (chartInteractionState.activeOverlays.has('forecast') && modelForecasts?.predictions?.ensemble) {
         const lastDate = new Date(dates[dates.length - 1]);
         const forecastDate = new Date(lastDate);
         forecastDate.setDate(forecastDate.getDate() + Number(modelForecasts.horizon_days || 7));
@@ -435,7 +443,7 @@ function drawMainChart(ticker, prices, indicators) {
         });
     }
 
-    Plotly.newPlot('mainChart', traces, getLayout(), { displayModeBar: false, responsive: true });
+    Plotly.newPlot('mainChart', traces, getLayout(false, 620), { displayModeBar: false, responsive: true });
 }
 
 function getSubchartLayout(title) {
@@ -559,7 +567,34 @@ function toggleSubchart(indicator) {
     }
 }
 
+function toggleOverlay(overlay) {
+    if (chartInteractionState.activeOverlays.has(overlay)) {
+        chartInteractionState.activeOverlays.delete(overlay);
+    } else {
+        chartInteractionState.activeOverlays.add(overlay);
+    }
+
+    updateChartOptionStyles();
+
+    if (currentData) {
+        const prices = currentData.stockData.stock_price_trends;
+        const indicators = currentData.stockData.indicators;
+        drawMainChart(currentData.ticker, prices, indicators);
+    }
+}
+
 function updateSubchartToggleStyles() {
+    updateChartOptionStyles();
+}
+
+function updateChartOptionStyles() {
+    const overlayButtons = document.querySelectorAll('[data-overlay]');
+    overlayButtons.forEach((btn) => {
+        const key = btn.getAttribute('data-overlay');
+        if (!key) return;
+        btn.classList.toggle('active', chartInteractionState.activeOverlays.has(key));
+    });
+
     const buttons = document.querySelectorAll('[data-subchart]');
     buttons.forEach((btn) => {
         const key = btn.getAttribute('data-subchart');
@@ -599,17 +634,17 @@ function drawIndicatorChart(ticker, prices, indicators) {
     Plotly.newPlot('indChart', [heatBar], getLayout(true), { displayModeBar: false, responsive: true });
 }
 
-function getLayout(small = false) {
+function getLayout(small = false, customHeight = null) {
     return {
-        paper_bgcolor: '#111',
-        plot_bgcolor: '#000',
-        font: { color: '#888', family: 'system-ui' },
-        xaxis: { gridcolor: '#222', showgrid: true },
-        yaxis: { gridcolor: '#222', showgrid: true, side: 'right' },
-        margin: { l: 40, r: 60, t: small ? 10 : 20, b: 40 },
-        height: small ? 300 : 400,
+        paper_bgcolor: '#0f172a',
+        plot_bgcolor: '#08111f',
+        font: { color: '#94a3b8', family: 'Inter, system-ui' },
+        xaxis: { gridcolor: '#1e293b', showgrid: true, rangeslider: { visible: !small, bgcolor: '#0b1220', bordercolor: '#1e293b' } },
+        yaxis: { gridcolor: '#1e293b', showgrid: true, side: 'right' },
+        margin: { l: 40, r: 64, t: small ? 10 : 18, b: small ? 36 : 52 },
+        height: customHeight || (small ? 300 : 400),
         showlegend: true,
-        legend: { x: 0, y: 1, bgcolor: 'transparent' },
+        legend: { x: 0, y: 1, bgcolor: 'rgba(15, 23, 42, 0.72)', bordercolor: '#1e293b', borderwidth: 1 },
         hovermode: 'x unified'
     };
 }
@@ -652,6 +687,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Enter') analyze();
     });
 
+    const overlayButtons = document.querySelectorAll('[data-overlay]');
+    overlayButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const overlay = btn.getAttribute('data-overlay');
+            if (!overlay) return;
+            toggleOverlay(overlay);
+        });
+    });
+
     const subchartButtons = document.querySelectorAll('[data-subchart]');
     subchartButtons.forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -661,7 +705,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    updateSubchartToggleStyles();
+    updateChartOptionStyles();
 
     const horizonTabs = document.getElementById('horizonTabs');
     if (horizonTabs) {
