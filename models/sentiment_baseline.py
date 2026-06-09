@@ -185,32 +185,97 @@ class LexiconSentimentAnalyzer:
         self.negative_threshold = negative_threshold
 
         self.positive_term_weights = {
-            "漲停": 1.5,
-            "創新高": 1.3,
-            "創高": 1.25,
-            "新高": 1.2,
-            "超預期": 1.3,
-            "上修": 1.2,
-            "強勁": 1.2,
-            "勁揚": 1.25,
+            # ── 極度正面（突破性事件）──
+            "漲停": 1.9,
+            "暴漲": 1.8,
+            "飆漲": 1.85,
+            "大漲": 1.7,
+            "historic high": 1.8,
+            "all-time high": 1.85,
+            "record breaking": 1.75,
+
+            # ── 高度正面（基本面 / 預期大幅上修）──
+            "創新高": 1.6,
+            "創高": 1.55,
+            "超預期": 1.5,
+            "大幅超越": 1.55,
+            "上修": 1.45,
+            "獲利創高": 1.6,
+            "guidance raised": 1.5,
+            "beat estimates": 1.5,
+            "earnings beat": 1.55,
+            "raised outlook": 1.5,
+            "upgrade": 1.45,
+
+            # ── 中度正面（技術面 / 盤勢訊號）──
+            "新高": 1.35,
+            "record high": 1.35,
+            "勁揚": 1.3,
             "飆升": 1.35,
-            "站上": 1.15,
-            "guidance raised": 1.4,
-            "record high": 1.3,
+            "站上": 1.25,
+            "突破": 1.3,
+            "強彈": 1.3,
+            "回升": 1.2,
+            "bullish": 1.25,
+            "breakout": 1.3,
+            "outperform": 1.3,
+
+            # ── 輕度正面（氣氛偏多）──
+            "買超": 1.15,
+            "強勁": 1.2,
+            "樂觀": 1.1,
+            "看好": 1.1,
+            "買進": 1.1,
+            "accumulate": 1.1,
+            "positive": 1.05,
+            "optimistic": 1.1,
+            "momentum": 1.1,
         }
         self.negative_term_weights = {
-            "跌停": 1.6,
-            "破產": 1.8,
-            "違約": 1.8,
-            "下修": 1.3,
-            "重挫": 1.4,
-            "跌破": 1.25,
-            "失守": 1.2,
-            "翻黑": 1.2,
+            # ── 極度危險（公司存亡層級）──
+            "破產": 2.0,
+            "倒閉": 2.0,
+            "下市": 1.9,
+            "違約": 1.9,
+            "debt default": 1.9,
+            "bankruptcy": 2.0,
+            "insolvency": 1.9,
+            "liquidation": 1.9,
+
+            # ── 高度負面（財務/評等惡化）──
+            "跌停": 1.7,
+            "重挫": 1.6,
+            "暴跌": 1.6,
+            "崩跌": 1.65,
+            "大幅下修": 1.6,
+            "下修": 1.4,
+            "虧損擴大": 1.5,
+            "獲利預警": 1.55,
+            "guidance cut": 1.5,
+            "profit warning": 1.55,
+            "downgrade": 1.5,
+            "earnings miss": 1.45,
+
+            # ── 中度負面（技術面 / 盤勢訊號）──
+            "跌破": 1.35,
             "跳水": 1.35,
-            "下挫": 1.25,
-            "guidance cut": 1.4,
+            "下挫": 1.3,
+            "回落": 1.2,
+            "失守": 1.25,
+            "翻黑": 1.25,
             "warning": 1.3,
+            "sell-off": 1.35,
+            "bearish": 1.2,
+
+            # ── 輕度負面（氣氛偏空）──
+            "觀望": 1.1,
+            "不確定": 1.1,
+            "審慎": 1.05,
+            "疲軟": 1.15,
+            "承壓": 1.15,
+            "cautious": 1.1,
+            "uncertainty": 1.1,
+            "headwinds": 1.15,
         }
         if positive_term_weights:
             self.positive_term_weights.update({k.lower(): float(v) for k, v in positive_term_weights.items()})
