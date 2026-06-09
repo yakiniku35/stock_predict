@@ -30,6 +30,7 @@ CORS(app)
 fetcher = StockDataFetcher() if StockDataFetcher else None
 _rnn_runtime = None
 _rnn_runtime_error = None
+_lexicon_analyzer = None
 
 VALID_PERIODS = {
     "1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"
@@ -380,9 +381,7 @@ def _load_rnn_runtime():
         raise
 
 def _apply_lexicon_sentiment(records):
-    from sentiment_baseline import LexiconSentimentAnalyzer
-
-    analyzer = LexiconSentimentAnalyzer()
+    analyzer = _get_lexicon_analyzer()
     distribution = {"positive": 0, "neutral": 0, "negative": 0}
     for record in records:
         text = f"{record.get('headline') or ''} {record.get('content') or ''}".strip()
@@ -393,17 +392,60 @@ def _apply_lexicon_sentiment(records):
         distribution[result.label] += 1
     return "lexicon_baseline_v2", distribution
 
+def _get_lexicon_analyzer():
+    global _lexicon_analyzer
+    if _lexicon_analyzer is None:
+        from sentiment_baseline import LexiconSentimentAnalyzer
+
+        _lexicon_analyzer = LexiconSentimentAnalyzer(
+            positive_threshold=12.0,
+            negative_threshold=-12.0,
+        )
+    return _lexicon_analyzer
+
+def _normalize_score_scale(score):
+    score = _to_float_or_none(score)
+    if score is None:
+        return 0.0
+    return round(max(-100.0, min(100.0, score)), 2)
+
+def _calibrate_rnn_prediction(record, pred, analyzer):
+    text = f"{record.get('headline') or ''} {record.get('content') or ''}".strip()
+    lex = analyzer.predict(text)
+    rnn_label = pred.get("sentiment_label", "neutral")
+    rnn_score = _normalize_score_scale(pred.get("sentiment_score", 0.0))
+
+    calibrated_label = rnn_label if rnn_label in {"positive", "neutral", "negative"} else "neutral"
+    calibrated_score = rnn_score
+    calibration = "rnn"
+
+    lex_is_clear = lex.label != "neutral" and abs(float(lex.score)) >= 12.0
+    rnn_is_weak = calibrated_label == "neutral" or abs(rnn_score) < 12.0
+    if lex_is_clear and rnn_is_weak:
+        calibrated_label = lex.label
+        calibrated_score = round((rnn_score * 0.35) + (float(lex.score) * 0.65), 2)
+        calibration = "lexicon_override"
+    elif lex.label != "neutral" and calibrated_label == lex.label:
+        calibrated_score = round((rnn_score * 0.7) + (float(lex.score) * 0.3), 2)
+        calibration = "lexicon_confirmed"
+
+    return calibrated_label, calibrated_score, calibration, lex
+
 def _apply_rnn_sentiment(records):
     build_text, predict_many, model, tokenizer, meta = _load_rnn_runtime()
     max_len = int(meta.get("max_len", 256))
     texts = [build_text(record) for record in records]
     preds = predict_many(model, tokenizer, texts, max_len=max_len, batch_size=64)
+    analyzer = _get_lexicon_analyzer()
     distribution = {"positive": 0, "neutral": 0, "negative": 0}
     for record, pred in zip(records, preds):
-        label = pred.get("sentiment_label", "neutral")
-        record["sentiment_score"] = pred.get("sentiment_score", 0.0)
+        label, score, calibration, lex = _calibrate_rnn_prediction(record, pred, analyzer)
+        record["sentiment_score"] = score
         record["sentiment_label"] = label
-        record["sentiment_model"] = "rnn"
+        record["sentiment_model"] = "rnn+lexicon"
+        record["sentiment_calibration"] = calibration
+        record["lexicon_score"] = lex.score
+        record["lexicon_label"] = lex.label
         distribution[label if label in distribution else "neutral"] += 1
     return str(meta.get("model_name", "bilstm_sentiment_v1")), distribution
 
@@ -416,12 +458,25 @@ def _summarize_news(records, distribution, model_type, model_used, model_status,
             scores.append(0.0)
     total = len(records)
     denominator = max(1, total)
+    positive_ratio = distribution.get("positive", 0) / denominator
+    neutral_ratio = distribution.get("neutral", 0) / denominator
+    negative_ratio = distribution.get("negative", 0) / denominator
+    score_mean = sum(scores) / denominator if scores else 0.0
+    polarity_balance = positive_ratio - negative_ratio
+    if score_mean >= 12.0 or polarity_balance >= 0.12:
+        dominant_label = "positive"
+    elif score_mean <= -12.0 or polarity_balance <= -0.12:
+        dominant_label = "negative"
+    else:
+        dominant_label = "neutral"
     summary = {
         "records": total,
-        "score_mean": sum(scores) / denominator if scores else 0.0,
-        "positive_ratio": distribution.get("positive", 0) / denominator,
-        "neutral_ratio": distribution.get("neutral", 0) / denominator,
-        "negative_ratio": distribution.get("negative", 0) / denominator,
+        "score_mean": score_mean,
+        "positive_ratio": positive_ratio,
+        "neutral_ratio": neutral_ratio,
+        "negative_ratio": negative_ratio,
+        "polarity_balance": polarity_balance,
+        "dominant_label": dominant_label,
         "model_type": model_type,
         "model_used": model_used,
         "model_status": model_status,

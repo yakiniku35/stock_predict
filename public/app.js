@@ -368,15 +368,26 @@ function render({ ticker, stockData, newsData }) {
     `;
     
     // 情緒
-    const sentiment = newsData.summary?.score_mean || 0;
+    const summary = newsData.summary || {};
+    const sentiment = Number(summary.score_mean || 0);
+    const positiveRatio = Number(summary.positive_ratio || 0);
+    const negativeRatio = Number(summary.negative_ratio || 0);
+    const dominantLabel = summary.dominant_label || (
+        sentiment >= 12 || positiveRatio - negativeRatio >= 0.12
+            ? 'positive'
+            : sentiment <= -12 || positiveRatio - negativeRatio <= -0.12
+                ? 'negative'
+                : 'neutral'
+    );
     document.getElementById('sentiment').textContent = sentiment.toFixed(2);
     const sentimentTextEl = document.getElementById('sentimentText');
-    const modelUsed = newsData.summary?.model_used || 'unknown';
-    const modelStatus = newsData.summary?.model_status || 'unknown';
-    const sentimentLabel = sentiment > 20 ? '偏正面' : sentiment < -20 ? '偏負面' : '中立';
-    sentimentTextEl.textContent = `${sentimentLabel} · ${modelUsed}${modelStatus === 'ok' ? '' : ' fallback'}`;
-    sentimentTextEl.title = newsData.summary?.model_error || modelStatus;
-    sentimentTextEl.className = `card-change ${sentiment > 20 ? 'positive' : sentiment < -20 ? 'negative' : ''}`;
+    const modelUsed = summary.model_used || 'unknown';
+    const modelStatus = summary.model_status || 'unknown';
+    const sentimentLabel = dominantLabel === 'positive' ? '偏正面' : dominantLabel === 'negative' ? '偏負面' : '中立';
+    const ratioText = `正${Math.round(positiveRatio * 100)}% / 負${Math.round(negativeRatio * 100)}%`;
+    sentimentTextEl.textContent = `${sentimentLabel} · ${ratioText} · ${modelUsed}${modelStatus === 'ok' ? '' : ' fallback'}`;
+    sentimentTextEl.title = summary.model_error || modelStatus;
+    sentimentTextEl.className = `card-change ${dominantLabel === 'positive' ? 'positive' : dominantLabel === 'negative' ? 'negative' : ''}`;
     
     // RSI
     const rsi = stockData.indicators.rsi;
@@ -885,14 +896,15 @@ function renderNews(news) {
         const sentiment = item.sentiment_label;
         const badgeClass = sentiment === 'positive' ? 'pos' : sentiment === 'negative' ? 'neg' : 'neu';
         const badgeText = sentiment === 'positive' ? '正面' : sentiment === 'negative' ? '負面' : '中立';
-        const modelText = item.sentiment_model === 'rnn' ? 'RNN' : 'Lexicon';
+        const modelText = item.sentiment_model === 'rnn+lexicon' ? 'Hybrid' : item.sentiment_model === 'rnn' ? 'RNN' : 'Lexicon';
+        const scoreText = Number(item.sentiment_score || 0).toFixed(1);
         
         return `
             <div class="news-item" onclick="window.open('${item.url}', '_blank')">
                 <div class="news-title">${item.headline}</div>
                 <div class="news-meta">
                     <span>${item.source}</span>
-                    <span class="badge ${badgeClass}">${badgeText}</span>
+                    <span class="badge ${badgeClass}">${badgeText} ${scoreText}</span>
                     <span>${modelText}</span>
                 </div>
             </div>
