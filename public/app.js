@@ -319,8 +319,12 @@ function render({ ticker, stockData, newsData }) {
     }
     
     // 繪製圖表
-    drawMainChart(ticker, prices, stockData.indicators);
-    renderSubCharts(prices, stockData.indicators);
+    if (typeof window.setRechartsSymbol === 'function') {
+        window.setRechartsSymbol(ticker);
+    } else {
+        drawMainChart(ticker, prices, stockData.indicators);
+        renderSubCharts(prices, stockData.indicators);
+    }
     drawIndicatorChart(ticker, prices, stockData.indicators);
     renderCompanyOverview(stockData.company_overview);
     renderModelPredictions(stockData.model_forecasts);
@@ -651,6 +655,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('ticker').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') analyze();
     });
+
+    const initialTicker = document.getElementById('ticker')?.value?.trim()?.toUpperCase();
+    if (initialTicker && typeof window.setRechartsSymbol === 'function') {
+        window.setRechartsSymbol(initialTicker);
+    }
 
     const subchartButtons = document.querySelectorAll('[data-subchart]');
     subchartButtons.forEach((btn) => {
