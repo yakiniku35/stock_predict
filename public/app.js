@@ -30,7 +30,7 @@ async function analyze() {
     try {
         const [stockData, newsData] = await Promise.all([
             fetchStock(ticker, period, interval, currentForecastHorizon),
-            fetchNews(ticker, 50)
+            fetchNews(ticker, 120)
         ]);
         
         currentData = { ticker, stockData, newsData };
@@ -892,7 +892,7 @@ function renderNews(news) {
         return;
     }
     
-    list.innerHTML = news.slice(0, 10).map(item => {
+    list.innerHTML = news.slice(0, 40).map(item => {
         const sentiment = item.sentiment_label;
         const badgeClass = sentiment === 'positive' ? 'pos' : sentiment === 'negative' ? 'neg' : 'neu';
         const badgeText = sentiment === 'positive' ? '正面' : sentiment === 'negative' ? '負面' : '中立';

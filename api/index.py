@@ -516,10 +516,10 @@ def search_news():
     query = (request.args.get("query", "") or "").strip()
     model_type = (request.args.get("model_type", "rnn") or "rnn").strip().lower()
     try:
-        max_articles = int(request.args.get("max_articles", "50"))
+        max_articles = int(request.args.get("max_articles", "120"))
     except ValueError:
-        max_articles = 50
-    max_articles = min(100, max(1, max_articles))
+        max_articles = 120
+    max_articles = min(200, max(1, max_articles))
 
     try:
         records = _fetch_google_news(ticker=ticker, query=query, max_articles=max_articles)
