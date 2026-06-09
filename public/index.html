@@ -387,9 +387,16 @@
         <div class="chart-card">
             <div class="chart-header">
                 <div class="chart-title">歷史價格與指標 (1Y)</div>
-                <div class="muted" style="font-size: 0.8rem; color: #94a3b8;">Recharts</div>
+                <div class="tabs">
+                    <button class="indicator-toggle" data-subchart="macd">MACD</button>
+                    <button class="indicator-toggle" data-subchart="rsi">RSI</button>
+                    <button class="indicator-toggle" data-subchart="kd">KD</button>
+                    <button class="indicator-toggle" data-subchart="bias">BIAS</button>
+                    <button class="indicator-toggle" data-subchart="ad">AD</button>
+                </div>
             </div>
-            <div id="rechartsChartRoot" style="height: 760px;"></div>
+            <div id="mainChart" style="height: 540px;"></div>
+            <div id="subChartsArea" class="subcharts-area" style="display: none;"></div>
         </div>
 
         <div class="two-col">
@@ -442,11 +449,6 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/recharts/umd/Recharts.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script type="text/babel" data-presets="env,react" src="recharts-stock-chart.jsx"></script>
     <script src="app.js"></script>
 </body>
 </html>
