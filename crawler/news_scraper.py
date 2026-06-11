@@ -572,7 +572,7 @@ def parse_args() -> argparse.Namespace:
 		"--content-extract-mode",
 		type=str,
 		choices=["source", "auto", "html", "r.jina.ai", "markdown.new"],
-		default="source",
+		default="markdown.new",
 		help="How to fetch article body. source=use config, auto=try r.jina.ai + markdown.new then HTML fallback.",
 	)
 	parser.add_argument(
