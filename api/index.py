@@ -23,6 +23,7 @@ for path in (str(BACKEND_PATH), str(ROOT_PATH / "models")):
     if path not in sys.path:
         sys.path.insert(0, path)
 
+import analytics as analytics_engine  # noqa: E402
 import forecast as forecast_engine  # noqa: E402
 import indicators as indicator_engine  # noqa: E402
 import news as news_engine  # noqa: E402
@@ -38,7 +39,15 @@ fetcher = StockDataFetcher()
 VALID_PERIODS = {"1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
 VALID_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"}
 VALID_FORECAST_HORIZONS = {5, 7, 14, 30}
-API_VERSION = "2.0.0"
+API_VERSION = "2.1.0"
+MAX_COMPARE_SYMBOLS = 4
+
+# 計算 Beta 用的對照基準（台股用加權指數，美股用標普 500）
+BENCHMARKS = {
+    "TW": {"symbol": "^TWII", "label": "台股加權指數"},
+    "TWO": {"symbol": "^TWII", "label": "台股加權指數"},
+    "US": {"symbol": "^GSPC", "label": "標普 500 指數"},
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -159,6 +168,7 @@ def get_stock_insight():
     interval = request.args.get("interval", "1d")
     include_news = request.args.get("include_news", "1") not in {"0", "false", "no"}
     include_actions = request.args.get("include_actions", "1") not in {"0", "false", "no"}
+    include_benchmark = request.args.get("include_benchmark", "1") not in {"0", "false", "no"}
     model_type = (request.args.get("model_type") or "rnn").strip().lower()
 
     try:
@@ -218,6 +228,21 @@ def get_stock_insight():
 
         instrument_kind = (overview or {}).get("kind") or resolution.get("kind")
 
+        # 風險 / 報酬指標與定期定額試算
+        risk = analytics_engine.risk_metrics(prices, interval=interval)
+        benchmark_info = None
+        if include_benchmark and risk.get("status") == "ready":
+            benchmark = BENCHMARKS.get(resolution.get("market") or "")
+            if benchmark:
+                benchmark_result = fetcher.fetch_prices(
+                    benchmark["symbol"], period=result.get("period", period), interval=interval,
+                )
+                comparison = analytics_engine.beta_vs_benchmark(prices, benchmark_result.get("prices") or [])
+                if comparison:
+                    benchmark_info = {**comparison, **benchmark}
+        if benchmark_info:
+            risk["benchmark"] = benchmark_info
+
         corporate_actions = None
         fund_profile = None
         if include_actions:
@@ -253,6 +278,7 @@ def get_stock_insight():
                 "forecast_horizon": forecast_horizon,
                 "include_news": include_news,
                 "include_actions": include_actions,
+                "include_benchmark": include_benchmark,
             },
             "metrics": {
                 "total_fetched_prices": len(prices),
@@ -261,6 +287,12 @@ def get_stock_insight():
             },
             "stock_price_trends": prices,
             "company_overview": overview,
+            "risk_metrics": risk,
+            "dca": analytics_engine.simulate_dca(
+                prices,
+                dividends=((corporate_actions or {}).get("dividends") or {}).get("records"),
+                amount=analytics_engine.DCA_UNIT_AMOUNT,
+            ),
             "corporate_actions": corporate_actions,
             "fund_profile": fund_profile,
             "technical_indicators": indicators,
@@ -294,6 +326,70 @@ def search_news():
         ticker=ticker, query=query, max_articles=max_articles, model_type=model_type,
     )
     return jsonify(bundle), (200 if bundle.get("ok") else 502)
+
+
+@app.route("/api/compare")
+def compare_symbols():
+    """多標的比較：回傳「以第一天 = 100」的走勢與各自的風險報酬指標。"""
+    raw = request.args.get("tickers") or request.args.get("ticker") or ""
+    tickers = [item.strip() for item in raw.replace("，", ",").split(",") if item.strip()]
+    period = request.args.get("period", "1y")
+    interval = request.args.get("interval", "1d")
+
+    if not tickers:
+        return _bad_request("請提供至少一個代號（tickers=0050,006208）")
+    if period not in VALID_PERIODS:
+        return _bad_request(f"不支援的 period: {period}")
+    if interval not in VALID_INTERVALS:
+        return _bad_request(f"不支援的 interval: {interval}")
+
+    tickers = tickers[:MAX_COMPARE_SYMBOLS]
+    series: list[dict] = []
+    failed: list[dict] = []
+
+    for ticker in tickers:
+        result = fetcher.fetch_prices(ticker, period=period, interval=interval)
+        prices = result.get("prices")
+        resolution = result.get("resolution", {})
+        if not prices:
+            failed.append({"ticker": ticker, "message": result.get("error") or "查無資料"})
+            continue
+
+        catalog_entry = resolution.get("catalog")
+        normalized = analytics_engine.normalize_series(prices)
+        metrics = analytics_engine.risk_metrics(prices, interval=interval)
+        series.append({
+            "ticker": ticker,
+            "symbol": result["symbol"],
+            "display_code": resolution.get("display_code"),
+            "name": (catalog_entry or {}).get("name_zh") or resolution.get("display_code"),
+            "kind": resolution.get("kind"),
+            "latest_price": prices[-1]["close"],
+            "dates": normalized["dates"],
+            "values": normalized["values"],
+            "metrics": metrics,
+        })
+
+    if not series:
+        return jsonify({
+            "status": "error",
+            "message": "所有代號都查不到資料",
+            "failed": failed,
+        }), 404
+
+    ranked = sorted(
+        (item for item in series if item["metrics"].get("total_return_pct") is not None),
+        key=lambda item: -item["metrics"]["total_return_pct"],
+    )
+
+    return jsonify({
+        "status": "success",
+        "request": {"tickers": tickers, "period": period, "interval": interval},
+        "count": len(series),
+        "series": series,
+        "failed": failed,
+        "best": ranked[0]["display_code"] if ranked else None,
+    })
 
 
 @app.route("/<path:filename>")

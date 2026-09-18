@@ -126,15 +126,20 @@ python tests/test_stocksense.py   # 40 個離線測試，不需要網路
 舊版只認得代號，中文名稱完全沒有對照表，所以打「台積電」會直接失敗。現在分三層處理：
 
 1. `backend/symbol_catalog.py`：內建約 125 檔熱門標的（含中英文名與別稱，例如「護國神山」「月月配」）。
-2. `backend/tw_directory.py`：再向證交所 ISIN 頁面取得**完整**上市／上櫃清單（約 3,000 檔，含 ETF），
-   快取在 `data/runtime/tw_securities.json`（7 天更新一次）。所以「長榮航」「京元電子」「藥華藥」
-   這種沒收錄在內建字典的名稱也查得到。
-3. 連不到證交所時自動退回內建字典，功能不會中斷；查不到時畫面會提示可能的代號。
+2. `backend/tw_directory.py`：向證交所 ISIN 頁面取得**完整**上市／上櫃清單（約 3,000 檔，含 ETF）。
+   所以「長榮航」「京元電子」「藥華藥」這種沒收錄在內建字典的名稱也查得到。
+3. `backend/us_directory.py`：向 NASDAQ Trader 取得**完整美股清單**（NASDAQ + NYSE 等，約 11,000 檔，
+   含 ETF 旗標）。所以「ASML Holding」「Palantir」這類英文公司名也能直接查，
+   `BRK.B` 會自動轉成 yfinance 用的 `BRK-B`。
 
-想讓部署環境不必連證交所，可以先產生離線快照：
+兩份清單都快取在 `data/runtime/`（7 天更新一次）；連不到來源時自動退回內建字典，
+功能不會中斷，查不到時畫面會提示可能的代號。
+
+想讓部署環境不必連外就能用名稱查詢，可以先產生離線快照：
 
 ```bash
-python scripts/update_tw_securities.py    # 產生 backend/data/tw_securities.json
+python scripts/update_symbol_directory.py             # 台股 + 美股
+python scripts/update_symbol_directory.py --market us # 只更新美股
 ```
 
 ### 配息與分割
@@ -158,6 +163,31 @@ python scripts/update_tw_securities.py    # 產生 backend/data/tw_securities.js
   淨利率、ROE、ROA、營收與盈餘成長、自由現金流、流動比率、分析師評等與目標價、下次財報日。
 - **ETF**：發行商、類別、基金型態、成立日期、資產規模、費用率、週轉率、淨值、
   今年／三年／五年報酬、前次除息日、前十大持股、產業分布。
+
+### 風險與報酬、定期定額、多標的比較
+
+| 功能 | 說明 |
+| --- | --- |
+| 風險與報酬 | 期間報酬、年化報酬、年化波動、最大回撤（含發生區間）、夏普值、索提諾值、上漲月份比例，以及對大盤（台股用 `^TWII`、美股用 `^GSPC`）的 Beta 與相關係數 |
+| 定期定額試算 | 每月第一個交易日固定投入，配息自動再投入；輸出累計投入、目前價值、總損益、年化報酬、累計配息、平均成本，並與「一次全押」對照 |
+| 多標的比較 | 最多四檔標的以「起點 = 100」畫在同一張圖，附期間報酬、年化報酬、波動、最大回撤與夏普值表格 |
+
+對應端點：
+
+```text
+GET /api/stock_insight?ticker=0050&period=2y     # 內含 risk_metrics 與 dca
+GET /api/compare?tickers=0050,006208,00878&period=1y
+```
+
+> 定期定額的後端是以「單位金額 1000」試算，前端只要按比例換算就能即時反應金額調整（結果與金額成正比），
+> 不必每次都重新呼叫 API。
+
+### 其他前端功能
+
+- **自選股**：星號按鈕把目前標的存進瀏覽器（最多 20 檔），搜尋列下方一鍵切換。
+- **分享連結**：網址會同步 `?ticker=&period=&interval=&horizon=`，可直接收藏或傳給別人。
+- **CSV 匯出**：圖表工具列的「⬇ CSV」會下載目前區間的 OHLCV 與主要指標。
+- **鍵盤操作**：按 `/` 跳到搜尋框，↑ ↓ 選建議、Enter 確認。
 
 ### API 端點
 
@@ -201,6 +231,10 @@ stock_predict/
 │   ├── app.py                # 本機開發入口（直接沿用 api/index.py）
 │   ├── fetcher.py            # yfinance 串接、ETF／上櫃代號解析、TTL 快取
 │   ├── symbols.py            # 代號解析與離線搜尋
+│   ├── tw_directory.py       # 台股完整清單（中文名稱查詢）
+│   ├── us_directory.py       # 美股完整清單（英文名稱查詢）
+│   ├── directory_cache.py    # 名稱清單的快照 / 快取 / 抓取共用邏輯
+│   ├── analytics.py          # 風險指標、定期定額試算、比較序列
 │   ├── symbol_catalog.py     # 熱門台股／美股／ETF 離線字典
 │   ├── indicators.py         # 技術指標序列與最新快照
 │   ├── forecast.py           # 六個預測模型與滾動回測加權
@@ -215,6 +249,8 @@ stock_predict/
 ├── tests/
 │   └── test_stocksense.py    # 40 個離線測試（合成資料，不需網路）
 ├── data/                     # 本機資料集與管線輸出
+├── scripts/
+│   └── update_symbol_directory.py   # 更新名稱對照表快照
 ├── start.sh / stop.sh        # 啟動／停止本機服務
 └── vercel.json               # 部署設定
 ```

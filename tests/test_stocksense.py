@@ -19,6 +19,7 @@ for path in (str(ROOT / "backend"), str(ROOT / "api"), str(ROOT / "models")):
 
 import numpy as np  # noqa: E402
 
+import analytics as analytics_engine  # noqa: E402
 import fetcher as fetcher_module  # noqa: E402
 import forecast as forecast_engine  # noqa: E402
 import indicators as indicator_engine  # noqa: E402
@@ -27,15 +28,20 @@ import pandas as pd  # noqa: E402
 
 import symbols as symbol_utils  # noqa: E402
 import tw_directory  # noqa: E402
+import us_directory  # noqa: E402
+
+
+START_DATE = pd.Timestamp("2022-01-03")
 
 
 def make_prices(values, start_volume: int = 1_000_000) -> list[dict]:
-    """把收盤價序列轉成 API 格式的價格列表。"""
+    """把收盤價序列轉成 API 格式的價格列表（日期為連續營業日）。"""
+    dates = pd.bdate_range(START_DATE, periods=len(values))
     prices = []
     for index, value in enumerate(values):
         close = float(value)
         prices.append({
-            "date": f"2025-01-{(index % 28) + 1:02d}",
+            "date": dates[index].strftime("%Y-%m-%d"),
             "open": round(close * 0.995, 2),
             "high": round(close * 1.01, 2),
             "low": round(close * 0.99, 2),
@@ -249,12 +255,12 @@ class TaiwanDirectoryTests(unittest.TestCase):
     """證交所清單解析與中文名稱查詢。"""
 
     def setUp(self):
-        self._original = tw_directory._entries
-        tw_directory._entries = tw_directory.parse_isin_html(ISIN_SAMPLE, "上市")
+        self._original = tw_directory._cache._entries
+        tw_directory._cache._entries = tw_directory.parse_isin_html(ISIN_SAMPLE, "上市")
         symbol_utils._directory_cache = None
 
     def tearDown(self):
-        tw_directory._entries = self._original
+        tw_directory._cache._entries = self._original
         symbol_utils._directory_cache = None
 
     def test_parser_keeps_stocks_and_etfs_only(self):
@@ -351,6 +357,125 @@ class DividendAndSplitTests(unittest.TestCase):
         self.assertEqual(fetcher_module._ratio_to_pct(0.2345), 23.45)
 
 
+US_SYMBOL_SAMPLE = """Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares
+AAPL|Apple Inc. - Common Stock|Q|N|N|100|N|N
+QQQ|Invesco QQQ Trust, Series 1|Q|N|N|100|Y|N
+ZVZZT|NASDAQ TEST STOCK|G|Y|N|100|N|N
+AACIW|Armada Acquisition Corp. II - Warrant|S|N|N|100|N|N
+File Creation Time: 0919202601:30|||||||"""
+
+US_OTHER_SAMPLE = """ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol
+BRK.B|Berkshire Hathaway Inc. Class B|N|BRK B|N|100|N|BRK.B
+ASML|ASML Holding N.V. - Ordinary Shares|Q|ASML|N|100|N|ASML"""
+
+
+class UsDirectoryTests(unittest.TestCase):
+    """美股清單解析與英文名稱查詢。"""
+
+    def setUp(self):
+        entries = us_directory.parse_symbol_file(US_SYMBOL_SAMPLE, 0, 1, 6, 3)
+        entries += us_directory.parse_symbol_file(US_OTHER_SAMPLE, 0, 1, 4, 6, 2)
+        self._original = us_directory._cache._entries
+        us_directory._cache._entries = entries
+        symbol_utils._directory_cache = None
+
+    def tearDown(self):
+        us_directory._cache._entries = self._original
+        symbol_utils._directory_cache = None
+
+    def test_test_issues_and_warrants_are_filtered(self):
+        codes = {entry["code"] for entry in us_directory.parse_symbol_file(US_SYMBOL_SAMPLE, 0, 1, 6, 3)}
+        self.assertEqual(codes, {"AAPL", "QQQ"})
+
+    def test_etf_flag_is_read(self):
+        entries = {e["code"]: e for e in us_directory.parse_symbol_file(US_SYMBOL_SAMPLE, 0, 1, 6, 3)}
+        self.assertEqual(entries["QQQ"]["kind"], "etf")
+        self.assertEqual(entries["AAPL"]["kind"], "stock")
+
+    def test_dotted_symbols_are_converted_for_yfinance(self):
+        entries = {e["code"]: e for e in us_directory.parse_symbol_file(US_OTHER_SAMPLE, 0, 1, 4, 6, 2)}
+        self.assertIn("BRK-B", entries)
+
+    def test_name_suffix_is_trimmed(self):
+        entries = {e["code"]: e for e in us_directory.parse_symbol_file(US_SYMBOL_SAMPLE, 0, 1, 6, 3)}
+        self.assertEqual(entries["AAPL"]["name_en"], "Apple Inc.")
+
+    def test_us_company_name_resolves_to_ticker(self):
+        self.assertEqual(symbol_utils.resolve("ASML Holding N.V.")["primary"], "ASML")
+
+    def test_us_directory_entries_are_searchable(self):
+        codes = [item["code"] for item in symbol_utils.search("ASML", limit=3)]
+        self.assertIn("ASML", codes)
+
+
+class AnalyticsTests(unittest.TestCase):
+    """風險指標、定期定額與比較用序列。"""
+
+    def setUp(self):
+        self.prices = make_prices(trending_series(n=500, slope=0.15, noise=1.0))
+
+    def test_metrics_are_computed(self):
+        metrics = analytics_engine.risk_metrics(self.prices, "1d")
+        self.assertEqual(metrics["status"], "ready")
+        self.assertGreater(metrics["total_return_pct"], 0)
+        self.assertGreater(metrics["annualized_volatility_pct"], 0)
+        self.assertLessEqual(metrics["max_drawdown_pct"], 0)
+
+    def test_max_drawdown_matches_known_series(self):
+        closes = np.array([100.0, 120.0, 90.0, 110.0], dtype=float)
+        drawdown = analytics_engine.max_drawdown(closes)
+        self.assertAlmostEqual(drawdown["pct"], -25.0, places=6)
+        self.assertEqual(drawdown["peak_index"], 1)
+        self.assertEqual(drawdown["trough_index"], 2)
+
+    def test_insufficient_data(self):
+        self.assertEqual(analytics_engine.risk_metrics(self.prices[:3])["status"], "insufficient_data")
+        self.assertEqual(analytics_engine.risk_metrics([])["status"], "insufficient_data")
+
+    def test_beta_against_itself_is_one(self):
+        result = analytics_engine.beta_vs_benchmark(self.prices, self.prices)
+        self.assertAlmostEqual(result["beta"], 1.0, places=2)
+        self.assertAlmostEqual(result["correlation"], 1.0, places=2)
+
+    def test_beta_needs_enough_overlap(self):
+        self.assertIsNone(analytics_engine.beta_vs_benchmark(self.prices[:5], self.prices[:5]))
+
+    def test_dca_on_flat_prices_breaks_even(self):
+        flat = [{"date": (pd.Timestamp("2022-01-03") + pd.Timedelta(days=i)).strftime("%Y-%m-%d"),
+                 "open": 50.0, "high": 50.0, "low": 50.0, "close": 50.0, "volume": 1000}
+                for i in range(400)]
+        result = analytics_engine.simulate_dca(flat, amount=1000)
+        self.assertEqual(result["status"], "ready")
+        self.assertAlmostEqual(result["total_return_pct"], 0.0, places=6)
+        self.assertAlmostEqual(result["average_cost"], 50.0, places=2)
+
+    def test_dca_scales_linearly_with_amount(self):
+        base = analytics_engine.simulate_dca(self.prices, amount=1000)
+        doubled = analytics_engine.simulate_dca(self.prices, amount=2000)
+        self.assertAlmostEqual(doubled["final_value"], base["final_value"] * 2, delta=1.0)
+        self.assertAlmostEqual(doubled["total_return_pct"], base["total_return_pct"], places=4)
+
+    def test_dca_counts_dividends(self):
+        dividends = [{"date": "2022-07-15", "amount": 2.0}, {"date": "2023-07-14", "amount": 2.0}]
+        with_dividends = analytics_engine.simulate_dca(self.prices, dividends, amount=1000)
+        without = analytics_engine.simulate_dca(self.prices, None, amount=1000)
+        self.assertGreater(with_dividends["dividend_total"], 0)
+        self.assertGreater(with_dividends["final_value"], without["final_value"])
+
+    def test_dca_monthly_cadence(self):
+        result = analytics_engine.simulate_dca(self.prices, amount=1000)
+        self.assertEqual(result["months"], len(result["history"]))
+        self.assertAlmostEqual(result["invested"], result["months"] * 1000, places=2)
+
+    def test_normalize_series_starts_at_100(self):
+        series = analytics_engine.normalize_series(self.prices)
+        self.assertEqual(series["values"][0], 100.0)
+        self.assertEqual(len(series["values"]), len(self.prices))
+
+    def test_normalize_empty(self):
+        self.assertEqual(analytics_engine.normalize_series([])["values"], [])
+
+
 class ApiTests(unittest.TestCase):
     """用假的下載函式取代 yfinance / Google News，驗證 API 組裝邏輯。"""
 
@@ -430,6 +555,33 @@ class ApiTests(unittest.TestCase):
         payload = response.get_json()
         self.assertIn("找不到", payload["message"])
         self.assertIn("代號", payload["hint"])
+
+    def test_risk_metrics_and_dca_are_included(self):
+        payload = self.client.get("/api/stock_insight?ticker=0050&period=2y").get_json()
+        self.assertEqual(payload["risk_metrics"]["status"], "ready")
+        self.assertIn("max_drawdown_pct", payload["risk_metrics"])
+        self.assertEqual(payload["dca"]["status"], "ready")
+        self.assertEqual(payload["dca"]["unit_amount"], analytics_engine.DCA_UNIT_AMOUNT)
+
+    def test_compare_endpoint(self):
+        response = self.client.get("/api/compare?tickers=0050,2330&period=1y")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(payload["series"][0]["values"][0], 100.0)
+        self.assertIsNotNone(payload["best"])
+
+    def test_compare_limits_to_four_symbols(self):
+        payload = self.client.get("/api/compare?tickers=0050,2330,0056,00878,2454").get_json()
+        self.assertLessEqual(payload["count"], 4)
+
+    def test_compare_requires_tickers(self):
+        self.assertEqual(self.client.get("/api/compare").status_code, 400)
+
+    def test_compare_reports_unknown_symbols(self):
+        response = self.client.get("/api/compare?tickers=ZZZZ")
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(response.get_json()["failed"])
 
     def test_missing_ticker_is_rejected(self):
         self.assertEqual(self.client.get("/api/stock_insight").status_code, 400)

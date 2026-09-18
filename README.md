@@ -95,10 +95,12 @@ Highlights:
 輸入中文（例如「台積電」「長榮航」「高股息」）也能找到標的：
 
 1. `backend/symbol_catalog.py` bundles ~125 popular symbols with Chinese and English names.
-2. `backend/tw_directory.py` additionally pulls the full TWSE/TPEx listing (~3,000 stocks and ETFs)
-   from the exchange ISIN page, caches it under `data/runtime/` for 7 days, and degrades to the
-   bundled catalog if the network is unavailable.
-3. Optional offline snapshot for deployment: `python scripts/update_tw_securities.py`.
+2. `backend/tw_directory.py` pulls the full TWSE/TPEx listing (~3,000 stocks and ETFs) from the
+   exchange ISIN page.
+3. `backend/us_directory.py` pulls the full U.S. listing (~11,000 stocks and ETFs, with an ETF flag)
+   from the NASDAQ Trader symbol files, so English company names such as "Palantir" resolve too.
+4. Both are cached under `data/runtime/` for 7 days and degrade to the bundled catalog offline.
+5. Optional offline snapshot for deployment: `python scripts/update_symbol_directory.py`.
 
 ### Dividends and splits
 
@@ -111,6 +113,19 @@ Highlights:
 - `dividends.consecutive_years`: consecutive years with a dividend.
 - `splits.records`: split and reverse-split history with readable labels.
 - `fund_profile` (ETF only): top 10 holdings and sector weightings.
+
+### Risk, DCA and comparison
+
+- `risk_metrics` (in `/api/stock_insight`): total and annualized return, annualized volatility, max drawdown
+  with its peak/trough dates, Sharpe, Sortino, monthly win rate, plus beta and correlation against the local
+  benchmark (`^TWII` for Taiwan, `^GSPC` for the U.S.).
+- `dca` (in `/api/stock_insight`): monthly dollar-cost-averaging simulation with dividend reinvestment,
+  computed for a unit contribution so the UI can rescale instantly; includes a lump-sum comparison.
+- `GET /api/compare?tickers=0050,006208,00878&period=1y`: up to four symbols rebased to 100 with their
+  risk/return metrics side by side.
+
+The front end also has a watchlist (stored in the browser), shareable URLs
+(`?ticker=&period=&interval=&horizon=`) and CSV export of prices and indicators.
 
 ### API endpoints
 
@@ -297,6 +312,10 @@ stock_predict/
 │   ├── app.py                # Local dev entry point (reuses api/index.py)
 │   ├── fetcher.py            # yfinance access, ETF/OTC resolution, TTL cache
 │   ├── symbols.py            # Symbol resolution and offline search
+│   ├── tw_directory.py       # Full TWSE/TPEx listing (Chinese name lookup)
+│   ├── us_directory.py       # Full U.S. listing (English name lookup)
+│   ├── directory_cache.py    # Shared snapshot / cache / fetch plumbing
+│   ├── analytics.py          # Risk metrics, DCA simulation, comparison series
 │   ├── symbol_catalog.py     # Offline catalog of popular TW/US stocks and ETFs
 │   ├── indicators.py         # Technical indicator series + latest snapshot
 │   ├── forecast.py           # Six forecasting models + walk-forward backtest
@@ -311,6 +330,8 @@ stock_predict/
 ├── tests/
 │   └── test_stocksense.py    # 40 offline tests (synthetic data, no network)
 ├── data/                     # Local datasets and pipeline output
+├── scripts/
+│   └── update_symbol_directory.py   # Refresh the offline name snapshots
 ├── start.sh / stop.sh        # Start and stop the local service
 └── vercel.json               # Deployment config
 ```

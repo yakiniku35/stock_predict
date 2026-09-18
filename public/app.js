@@ -9,6 +9,7 @@
 const API = {
     insight: '/api/stock_insight',
     symbolSearch: '/api/symbol_search',
+    compare: '/api/compare',
     health: '/api/health',
 };
 
@@ -16,7 +17,10 @@ const STORAGE = {
     theme: 'stocksense.theme',
     ticker: 'stocksense.ticker',
     prefs: 'stocksense.prefs',
+    watchlist: 'stocksense.watchlist',
 };
+
+const DCA_UNIT = 1000;   // 後端用單位金額試算，前端按比例換算
 
 const state = {
     ticker: '0050',
@@ -30,6 +34,10 @@ const state = {
     suggestions: [],
     highlighted: -1,
     actionTab: 'dividends',
+    watchlist: [],
+    compareList: [],
+    compareData: null,
+    dcaAmount: 5000,
 };
 
 /* ----------------------------- 小工具 ----------------------------- */
@@ -74,6 +82,16 @@ function fmtSigned(value, digits = 2, suffix = '') {
     if (!isNum(Number(value))) return '--';
     const num = Number(value);
     return `${num >= 0 ? '+' : ''}${num.toFixed(digits)}${suffix}`;
+}
+
+function fmtSignedAmount(value, digits = 0) {
+    const num = Number(value);
+    if (!isNum(num)) return '--';
+    return num.toLocaleString('zh-TW', {
+        signDisplay: 'exceptZero',
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+    });
 }
 
 function fmtCompact(value) {
@@ -199,6 +217,7 @@ function savePrefs() {
         horizon: state.horizon,
         overlays: Array.from(state.overlays),
         subcharts: Array.from(state.subcharts),
+        dcaAmount: state.dcaAmount,
     }));
     safeStorage('set', STORAGE.ticker, state.ticker);
 }
@@ -214,6 +233,7 @@ function loadPrefs() {
         if (prefs.horizon) state.horizon = Number(prefs.horizon);
         if (Array.isArray(prefs.overlays)) state.overlays = new Set(prefs.overlays);
         if (Array.isArray(prefs.subcharts)) state.subcharts = new Set(prefs.subcharts);
+        if (prefs.dcaAmount) state.dcaAmount = Number(prefs.dcaAmount);
     } catch (error) {
         /* 忽略毀損的設定 */
     }
@@ -224,6 +244,7 @@ function syncControls() {
     els('[data-period]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.period === state.period)));
     els('[data-interval]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.interval === state.interval)));
     els('[data-horizon]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.horizon) === state.horizon)));
+    $('dcaAmount').value = String(state.dcaAmount);
     els('[data-overlay]').forEach((b) => b.setAttribute('aria-pressed', String(state.overlays.has(b.dataset.overlay))));
     els('[data-subchart]').forEach((b) => b.setAttribute('aria-pressed', String(state.subcharts.has(b.dataset.subchart))));
 }
@@ -325,6 +346,14 @@ async function analyze() {
         state.data = data;
         setApiState('ok', `已更新 ${new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}`);
         render();
+        syncUrl();
+        updateWatchButton();
+
+        const code = data.symbol?.display_code || state.ticker;
+        if (!state.compareList.length) {
+            state.compareList = [code];
+            renderCompareChips();
+        }
     } catch (error) {
         setApiState('error', '連線失敗');
         toast(`無法連線到分析服務：${error.message}`);
@@ -344,6 +373,8 @@ function render() {
     renderOverview(data.company_overview, data.symbol);
     renderCorporateActions(data.corporate_actions, data.company_overview);
     renderExtraPanel(data);
+    renderRisk(data.risk_metrics, data.symbol);
+    renderDca(data.dca, data.company_overview);
     renderNews(data.news, data.news_summary);
 }
 
@@ -552,6 +583,8 @@ function renderCharts() {
     drawMainChart(data);
     drawSubCharts(data);
     if (data.corporate_actions?.dividends) drawDividendChart(data.corporate_actions.dividends);
+    if (data.dca?.status === 'ready') drawDcaChart(data.dca, state.dcaAmount / (data.dca.unit_amount || DCA_UNIT));
+    if (state.compareData) drawCompareChart(state.compareData);
 }
 
 function drawMainChart(data) {
@@ -1077,6 +1110,372 @@ function renderExtraPanel(data) {
         : '<div class="empty-state">Yahoo Finance 沒有提供這檔個股的評等資料</div>';
 }
 
+/* ----------------------------- 風險與報酬 ----------------------------- */
+function renderRisk(risk, symbol) {
+    const stats = $('riskStats');
+    const note = $('riskNote');
+    const betaTag = $('riskBeta');
+
+    if (!risk || risk.status !== 'ready') {
+        stats.innerHTML = '';
+        betaTag.textContent = '--';
+        note.textContent = '資料筆數不足，無法計算風險指標，請改用較長的時間範圍。';
+        return;
+    }
+
+    $('riskSubtitle').textContent = `${risk.start_date} ~ ${risk.end_date}（共 ${risk.sample_size} 筆）`;
+    betaTag.textContent = risk.benchmark
+        ? `Beta ${risk.benchmark.beta}（對 ${risk.benchmark.label}）`
+        : '無對照基準';
+
+    const rows = [
+        ['期間報酬', fmtSigned(risk.total_return_pct, 2, '%'), '買進並持有', changeClass(risk.total_return_pct)],
+        ['年化報酬', fmtSigned(risk.annualized_return_pct, 2, '%'), '換算成一年', changeClass(risk.annualized_return_pct)],
+        ['年化波動', `${risk.annualized_volatility_pct}%`, '數字越大越震盪', ''],
+        ['最大回撤', `${risk.max_drawdown_pct}%`, `${risk.max_drawdown_peak_date} → ${risk.max_drawdown_trough_date}`, 'down'],
+        ['夏普值', risk.sharpe_ratio ?? '--', '每承受 1 單位風險的報酬', ''],
+        ['索提諾值', risk.sortino_ratio ?? '--', '只看下跌風險', ''],
+        ['上漲月份', risk.monthly_win_rate_pct != null ? `${risk.monthly_win_rate_pct}%` : '--', '月線收紅的比例', ''],
+        ['單日最大漲跌', `${fmtSigned(risk.best_period_pct, 2, '%')} / ${fmtSigned(risk.worst_period_pct, 2, '%')}`, '期間內極值', ''],
+    ];
+
+    stats.innerHTML = rows.map(([label, value, hint, cls]) => `
+        <div class="stat-chip">
+            <dt>${escapeHtml(label)}</dt>
+            <dd class="${cls}">${escapeHtml(value)}</dd>
+            <small>${escapeHtml(hint)}</small>
+        </div>`).join('');
+
+    const sharpeText = risk.sharpe_ratio == null ? '無法計算夏普值'
+        : risk.sharpe_ratio >= 1 ? `夏普值 ${risk.sharpe_ratio}，報酬相對於承受的風險算是不錯`
+        : risk.sharpe_ratio >= 0 ? `夏普值 ${risk.sharpe_ratio}，報酬只勉強補償了波動`
+        : `夏普值 ${risk.sharpe_ratio}，這段期間承受風險卻沒有換到報酬`;
+    const betaText = risk.benchmark
+        ? (risk.benchmark.beta >= 1.2 ? `Beta ${risk.benchmark.beta}，波動比${risk.benchmark.label}更劇烈`
+            : risk.benchmark.beta <= 0.8 ? `Beta ${risk.benchmark.beta}，比${risk.benchmark.label}抗跌`
+            : `Beta ${risk.benchmark.beta}，走勢大致跟著${risk.benchmark.label}`)
+        : '';
+    note.textContent =
+        `這段期間最深曾經從高點下跌 ${Math.abs(risk.max_drawdown_pct)}%（${risk.max_drawdown_peak_date} 到 ${risk.max_drawdown_trough_date}），`
+        + `年化波動 ${risk.annualized_volatility_pct}%。${sharpeText}。${betaText ? betaText + '。' : ''}`;
+}
+
+/* ----------------------------- 定期定額試算 ----------------------------- */
+function renderDca(dca, overview) {
+    const stats = $('dcaStats');
+    const note = $('dcaNote');
+
+    if (!dca || dca.status !== 'ready') {
+        stats.innerHTML = '';
+        note.textContent = '資料筆數不足，無法試算（建議選 1 年以上的範圍）。';
+        clearChart('dcaChart');
+        return;
+    }
+
+    const scale = state.dcaAmount / (dca.unit_amount || DCA_UNIT);
+    const currency = overview?.currency || '';
+    const invested = dca.invested * scale;
+    const finalValue = dca.final_value * scale;
+    const profit = dca.profit * scale;
+    const dividends = dca.dividend_total * scale;
+    const lumpSum = dca.lump_sum_value != null ? dca.lump_sum_value * scale : null;
+
+    $('dcaSubtitle').textContent =
+        `${dca.start_date} 起每月投入，共 ${dca.months} 期（約 ${dca.years} 年）`;
+
+    const rows = [
+        ['累計投入', fmtPrice(invested, 0), currency, ''],
+        ['目前價值', fmtPrice(finalValue, 0), currency, ''],
+        ['總損益', fmtSignedAmount(profit), `${fmtSigned(dca.total_return_pct, 2, '%')}`, changeClass(profit)],
+        ['年化報酬', fmtSigned(dca.annualized_return_pct, 2, '%'), '以投入時間加權', changeClass(dca.annualized_return_pct)],
+        ['累計配息', fmtPrice(dividends, 0), dca.dividend_reinvested ? '已再投入' : '未再投入', ''],
+        ['平均成本', fmtPrice(dca.average_cost, 2), `現價 ${fmtPrice(dca.final_price, 2)}`, ''],
+    ];
+
+    stats.innerHTML = rows.map(([label, value, hint, cls]) => `
+        <div class="stat-chip">
+            <dt>${escapeHtml(label)}</dt>
+            <dd class="${cls}">${escapeHtml(value)}</dd>
+            <small>${escapeHtml(hint)}</small>
+        </div>`).join('');
+
+    drawDcaChart(dca, scale);
+
+    const compareText = lumpSum != null
+        ? `同樣金額在第一天一次全部投入會變成 ${fmtPrice(lumpSum, 0)}（${lumpSum > finalValue ? '一次投入較佳' : '定期定額較佳'}）。`
+        : '';
+    note.textContent =
+        `試算以每月第一個交易日收盤價買進、可買零股為前提，${dca.dividend_reinvested ? '配息自動再投入' : '配息以現金保留'}；`
+        + `未計入手續費與稅。${compareText}過去績效不代表未來報酬。`;
+}
+
+function drawDcaChart(dca, scale) {
+    if (typeof Plotly === 'undefined' || !dca.history?.length) return;
+    const theme = chartTheme();
+    const dates = dca.history.map((item) => item.date);
+
+    const traces = [
+        {
+            type: 'scatter', mode: 'lines', name: '累計投入', x: dates,
+            y: dca.history.map((item) => Math.round(item.invested * scale)),
+            line: { color: theme.text, width: 1.4, dash: 'dot' },
+        },
+        {
+            type: 'scatter', mode: 'lines', name: '資產價值', x: dates,
+            y: dca.history.map((item) => Math.round(item.value * scale)),
+            line: { color: theme.accent, width: 2 },
+            fill: 'tonexty', fillcolor: 'rgba(56,189,248,0.12)',
+        },
+    ];
+
+    const layout = baseLayout(dates, 190);
+    layout.margin = { l: 12, r: 58, t: 6, b: 30 };
+    layout.xaxis.tickangle = 0;
+    Plotly.react('dcaChart', traces, layout, PLOT_CONFIG);
+}
+
+/* ----------------------------- 多標的比較 ----------------------------- */
+function renderCompareChips() {
+    const container = $('compareChips');
+    if (!state.compareList.length) {
+        container.innerHTML = '<span class="chip-label">尚未加入標的，預設會比較目前查詢的代號</span>';
+        return;
+    }
+    container.innerHTML = `<span class="chip-label">比較中</span>` + state.compareList.map((code) => `
+        <button class="chip active" type="button" data-compare-remove="${escapeHtml(code)}">
+            ${escapeHtml(code)}<span class="remove">×</span>
+        </button>`).join('');
+
+    els('[data-compare-remove]').forEach((button) => {
+        button.addEventListener('click', () => {
+            state.compareList = state.compareList.filter((code) => code !== button.dataset.compareRemove);
+            renderCompareChips();
+            if (state.compareList.length) runCompare();
+        });
+    });
+}
+
+function addCompareSymbol(code) {
+    const value = (code || '').trim().toUpperCase();
+    if (!value) return;
+    if (state.compareList.includes(value)) return;
+    if (state.compareList.length >= 4) {
+        toast('最多只能比較四檔標的', 'info', 3500);
+        return;
+    }
+    state.compareList.push(value);
+    renderCompareChips();
+}
+
+async function runCompare() {
+    if (!state.compareList.length && state.ticker) state.compareList = [state.ticker];
+    if (!state.compareList.length) return;
+    renderCompareChips();
+
+    const query = new URLSearchParams({
+        tickers: state.compareList.join(','),
+        period: state.period,
+        interval: state.interval,
+    });
+
+    try {
+        const response = await fetch(`${API.compare}?${query}`);
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            toast(data.message || '比較失敗');
+            return;
+        }
+        state.compareData = data;
+        drawCompareChart(data);
+        renderCompareTable(data);
+        (data.failed || []).forEach((item) => toast(`${item.ticker}：${item.message}`, 'info', 4000));
+    } catch (error) {
+        toast(`比較失敗：${error.message}`);
+    }
+}
+
+function drawCompareChart(data) {
+    if (typeof Plotly === 'undefined') return;
+    const theme = chartTheme();
+    const palette = [theme.accent, theme.warn, theme.info, theme.up];
+    const longest = data.series.reduce((best, item) =>
+        (item.dates.length > (best?.dates.length || 0) ? item : best), null);
+
+    const traces = data.series.map((item, index) => ({
+        type: 'scatter', mode: 'lines',
+        name: `${item.display_code} ${item.name || ''}`.trim(),
+        x: item.dates, y: item.values,
+        line: { color: palette[index % palette.length], width: 2 },
+        hovertemplate: '%{y:.1f}<extra>%{fullData.name}</extra>',
+    }));
+
+    const labels = longest?.dates || [];
+    traces.push({
+        type: 'scatter', mode: 'lines', name: '起點 100',
+        x: labels, y: labels.map(() => 100),
+        line: { color: theme.text, width: 1, dash: 'dash' }, hoverinfo: 'skip', showlegend: false,
+    });
+
+    const layout = baseLayout(labels, 320);
+    layout.margin = { l: 12, r: 58, t: 8, b: 30 };
+    Plotly.react('compareChart', traces, layout, PLOT_CONFIG);
+}
+
+function renderCompareTable(data) {
+    const wrap = $('compareTableWrap');
+    const best = data.best;
+    wrap.innerHTML = `
+        <table class="data-table">
+            <thead>
+                <tr><th>標的</th><th>現價</th><th>期間報酬</th><th>年化報酬</th><th>年化波動</th><th>最大回撤</th><th>夏普值</th></tr>
+            </thead>
+            <tbody>
+                ${data.series.map((item) => {
+                    const metrics = item.metrics || {};
+                    const highlight = item.display_code === best ? ' style="background:var(--accent-soft)"' : '';
+                    return `<tr${highlight}>
+                        <td class="model-name">${escapeHtml(item.display_code)} ${escapeHtml(item.name || '')}</td>
+                        <td>${fmtPrice(item.latest_price)}</td>
+                        <td class="${changeClass(metrics.total_return_pct)}">${fmtSigned(metrics.total_return_pct, 2, '%')}</td>
+                        <td class="${changeClass(metrics.annualized_return_pct)}">${fmtSigned(metrics.annualized_return_pct, 2, '%')}</td>
+                        <td>${metrics.annualized_volatility_pct ?? '--'}%</td>
+                        <td class="down">${metrics.max_drawdown_pct ?? '--'}%</td>
+                        <td>${metrics.sharpe_ratio ?? '--'}</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>`;
+}
+
+/* ----------------------------- 自選股 / 分享 / 匯出 ----------------------------- */
+function loadWatchlist() {
+    try {
+        const saved = JSON.parse(safeStorage('get', STORAGE.watchlist) || '[]');
+        state.watchlist = Array.isArray(saved) ? saved.slice(0, 20) : [];
+    } catch (error) {
+        state.watchlist = [];
+    }
+}
+
+function saveWatchlist() {
+    safeStorage('set', STORAGE.watchlist, JSON.stringify(state.watchlist));
+}
+
+function renderWatchlist() {
+    const row = $('watchlistRow');
+    row.hidden = state.watchlist.length === 0;
+    row.innerHTML = '<span class="chip-label">自選</span>' + state.watchlist.map((item) => `
+        <button class="chip" type="button" data-watch-code="${escapeHtml(item.code)}">
+            ${escapeHtml(item.code)}${item.name ? ` ${escapeHtml(item.name)}` : ''}
+            <span class="remove" data-watch-remove="${escapeHtml(item.code)}">×</span>
+        </button>`).join('');
+
+    els('[data-watch-code]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            if (event.target.dataset.watchRemove) {
+                state.watchlist = state.watchlist.filter((item) => item.code !== event.target.dataset.watchRemove);
+                saveWatchlist();
+                renderWatchlist();
+                updateWatchButton();
+                return;
+            }
+            selectSuggestion(button.dataset.watchCode);
+        });
+    });
+}
+
+function updateWatchButton() {
+    const button = $('watchBtn');
+    const current = (state.data?.symbol?.display_code || state.ticker || '').toUpperCase();
+    const saved = state.watchlist.some((item) => item.code === current);
+    button.setAttribute('aria-pressed', String(saved));
+    button.title = saved ? '從自選股移除' : '加入自選股';
+}
+
+function toggleWatch() {
+    const code = (state.data?.symbol?.display_code || state.ticker || '').toUpperCase();
+    if (!code) return;
+    const exists = state.watchlist.some((item) => item.code === code);
+    if (exists) {
+        state.watchlist = state.watchlist.filter((item) => item.code !== code);
+    } else {
+        if (state.watchlist.length >= 20) {
+            toast('自選股最多 20 檔', 'info', 3000);
+            return;
+        }
+        state.watchlist.push({
+            code,
+            name: state.data?.symbol?.name_zh || state.data?.symbol?.name || '',
+        });
+    }
+    saveWatchlist();
+    renderWatchlist();
+    updateWatchButton();
+}
+
+function syncUrl() {
+    const params = new URLSearchParams({
+        ticker: state.ticker,
+        period: state.period,
+        interval: state.interval,
+        horizon: String(state.horizon),
+    });
+    window.history.replaceState(null, '', `${window.location.pathname}?${params}`);
+}
+
+function readUrlParams() {
+    const params = new URLSearchParams(window.location.search);
+    const ticker = params.get('ticker');
+    const period = params.get('period');
+    const interval = params.get('interval');
+    const horizon = Number(params.get('horizon'));
+    if (ticker) state.ticker = ticker.toUpperCase();
+    if (period) state.period = period;
+    if (interval) state.interval = interval;
+    if ([5, 7, 14, 30].includes(horizon)) state.horizon = horizon;
+}
+
+async function copyShareLink() {
+    syncUrl();
+    const url = window.location.href;
+    try {
+        await navigator.clipboard.writeText(url);
+        toast('已複製分享連結', 'info', 2500);
+    } catch (error) {
+        toast(`請手動複製：${url}`, 'info', 8000);
+    }
+}
+
+function exportCsv() {
+    const data = state.data;
+    if (!data?.stock_price_trends?.length) {
+        toast('請先查詢資料', 'info', 2500);
+        return;
+    }
+
+    const indicators = data.technical_indicators || {};
+    const pick = (series, index) => (series && series[index] != null ? series[index] : '');
+    const header = ['date', 'open', 'high', 'low', 'close', 'volume',
+        'sma5', 'sma20', 'sma60', 'rsi', 'macd', 'macd_signal', 'k', 'd', 'bias', 'atr'];
+
+    const rows = data.stock_price_trends.map((price, index) => [
+        price.date, price.open, price.high, price.low, price.close, price.volume,
+        pick(indicators.sma?.sma5, index), pick(indicators.sma?.sma20, index), pick(indicators.sma?.sma60, index),
+        pick(indicators.rsi, index), pick(indicators.macd?.macd, index), pick(indicators.macd?.signal, index),
+        pick(indicators.kd?.k, index), pick(indicators.kd?.d, index),
+        pick(indicators.bias, index), pick(indicators.atr, index),
+    ].join(','));
+
+    const csv = `\ufeff${header.join(',')}\n${rows.join('\n')}`;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${data.symbol?.display_code || state.ticker}_${state.period}_${state.interval}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    toast('CSV 已開始下載', 'info', 2500);
+}
+
 /* ----------------------------- 新聞 ----------------------------- */
 function renderNews(news, summary) {
     const list = $('newsList');
@@ -1197,6 +1596,42 @@ function initEvents() {
         renderActionTable(actions?.dividends, actions?.splits, state.data?.company_overview?.currency || '');
     });
 
+    $('watchBtn').addEventListener('click', toggleWatch);
+    $('shareBtn').addEventListener('click', copyShareLink);
+    $('exportCsvBtn').addEventListener('click', exportCsv);
+
+    const dcaInput = $('dcaAmount');
+    const applyDca = () => {
+        const value = Math.max(100, Number(dcaInput.value) || DCA_UNIT);
+        state.dcaAmount = value;
+        savePrefs();
+        if (state.data?.dca) renderDca(state.data.dca, state.data.company_overview);
+    };
+    dcaInput.addEventListener('change', applyDca);
+    dcaInput.addEventListener('input', debounce(applyDca, 400));
+    els('[data-dca-step]').forEach((button) => {
+        button.addEventListener('click', () => {
+            dcaInput.value = String(Math.max(1000, Number(dcaInput.value || 0) + Number(button.dataset.dcaStep)));
+            applyDca();
+        });
+    });
+
+    $('compareBtn').addEventListener('click', () => {
+        const input = $('compareInput');
+        if (input.value.trim()) {
+            addCompareSymbol(input.value);
+            input.value = '';
+        }
+        runCompare();
+    });
+    $('compareInput').addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        addCompareSymbol(event.target.value);
+        event.target.value = '';
+        runCompare();
+    });
+
     $('descToggle').addEventListener('click', () => {
         const desc = $('companyDesc');
         const expanded = desc.classList.toggle('expanded');
@@ -1229,6 +1664,10 @@ async function initQuickPicks() {
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     loadPrefs();
+    loadWatchlist();
+    readUrlParams();
+    renderWatchlist();
+    renderCompareChips();
     syncControls();
     initEvents();
     initQuickPicks();

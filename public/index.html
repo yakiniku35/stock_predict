@@ -82,10 +82,22 @@
                     </div>
                     <div class="combo-list" id="comboList" role="listbox" data-open="false" aria-label="搜尋結果"></div>
                 </div>
-                <button class="btn" id="analyzeBtn" type="button">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M3 17l5-6 4 4 5-7 4 5"></path></svg>
-                    開始分析
-                </button>
+                <div class="search-actions">
+                    <button class="icon-btn" id="watchBtn" type="button" title="加入自選股" aria-pressed="false">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6.1.8-4.4 4.3 1.1 6.1L12 17l-5.4 2.8 1.1-6.1L3.3 9.4l6.1-.8z"></path></svg>
+                    </button>
+                    <button class="icon-btn" id="shareBtn" type="button" title="複製分享連結">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"></path><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"></path></svg>
+                    </button>
+                    <button class="btn" id="analyzeBtn" type="button">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M3 17l5-6 4 4 5-7 4 5"></path></svg>
+                        開始分析
+                    </button>
+                </div>
+            </div>
+
+            <div class="chip-row" id="watchlistRow" aria-label="自選股" hidden>
+                <span class="chip-label">自選</span>
             </div>
 
             <div class="chip-row" id="quickPicks" aria-label="熱門標的">
@@ -198,6 +210,7 @@
                     </div>
                     <div class="chip-row" role="group" aria-label="副圖指標">
                         <span class="chip-label">副圖</span>
+                        <button class="chip" type="button" id="exportCsvBtn" title="下載價格與指標 CSV">⬇ CSV</button>
                         <button class="chip" type="button" data-subchart="macd" aria-pressed="false">MACD</button>
                         <button class="chip" type="button" data-subchart="rsi" aria-pressed="false">RSI</button>
                         <button class="chip" type="button" data-subchart="kd" aria-pressed="false">KD</button>
@@ -297,6 +310,57 @@
                 <div id="extraBody"></div>
             </section>
         </div>
+
+        <!-- ============ 風險 / 定期定額 ============ -->
+        <div class="grid-2">
+            <section class="panel loadable" aria-label="風險與報酬">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title">風險與報酬</div>
+                        <div class="panel-sub" id="riskSubtitle">以目前選擇的時間範圍計算</div>
+                    </div>
+                    <span class="tag" id="riskBeta">--</span>
+                </div>
+                <div class="stat-chips" id="riskStats"></div>
+                <p class="read-summary" id="riskNote"></p>
+            </section>
+
+            <section class="panel loadable" aria-label="定期定額試算">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title">定期定額試算</div>
+                        <div class="panel-sub" id="dcaSubtitle">每月第一個交易日固定投入，配息自動再投入</div>
+                    </div>
+                    <div class="amount-control">
+                        <label class="visually-hidden" for="dcaAmount">每月投入金額</label>
+                        <button class="icon-btn" type="button" data-dca-step="-1000" title="減少 1000">−</button>
+                        <input type="number" id="dcaAmount" value="5000" min="1000" step="1000" inputmode="numeric">
+                        <button class="icon-btn" type="button" data-dca-step="1000" title="增加 1000">＋</button>
+                    </div>
+                </div>
+                <div class="stat-chips" id="dcaStats"></div>
+                <div id="dcaChart" class="chart-body" style="height: 190px;"></div>
+                <p class="read-risk" id="dcaNote"></p>
+            </section>
+        </div>
+
+        <!-- ============ 多標的比較 ============ -->
+        <section class="panel loadable" aria-label="多標的比較">
+            <div class="panel-head">
+                <div>
+                    <div class="panel-title">多標的比較</div>
+                    <div class="panel-sub">同一個起點（=100）比較報酬率，最多四檔</div>
+                </div>
+                <div class="compare-input">
+                    <label class="visually-hidden" for="compareInput">加入比較標的</label>
+                    <input type="text" id="compareInput" placeholder="輸入代號後按 Enter，例如 006208" autocomplete="off">
+                    <button class="btn" id="compareBtn" type="button">比較</button>
+                </div>
+            </div>
+            <div class="chip-row" id="compareChips" aria-label="比較清單"></div>
+            <div id="compareChart" class="chart-body" style="height: 320px;"></div>
+            <div class="table-wrap" id="compareTableWrap" style="max-height:none;"></div>
+        </section>
 
         <!-- ============ 新聞 ============ -->
         <section class="panel loadable" aria-label="相關新聞">

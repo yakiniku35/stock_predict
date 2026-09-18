@@ -15,10 +15,11 @@ import unicodedata
 
 try:  # 支援 `python backend/app.py` 與 `from backend import ...` 兩種載入方式
     from .symbol_catalog import CATALOG, QUICK_PICKS
-    from . import tw_directory
+    from . import tw_directory, us_directory
 except ImportError:  # pragma: no cover - 由執行方式決定
     from symbol_catalog import CATALOG, QUICK_PICKS
     import tw_directory
+    import us_directory
 
 __all__ = [
     "normalize_query",
@@ -61,12 +62,20 @@ _directory_cache: dict | None = None
 
 
 def _directory_entries() -> list[dict]:
-    if os.environ.get("STOCKSENSE_DISABLE_TW_DIRECTORY") == "1":
+    """台股 + 美股的完整清單（任一來源失敗都不影響另一個）。"""
+    if os.environ.get("STOCKSENSE_DISABLE_DIRECTORY") == "1":
         return []
-    try:
-        return tw_directory.load_entries()
-    except Exception:  # pragma: no cover - 任何載入問題都不應影響查詢
-        return []
+
+    entries: list[dict] = []
+    for module, flag in ((tw_directory, "STOCKSENSE_DISABLE_TW_DIRECTORY"),
+                         (us_directory, "STOCKSENSE_DISABLE_US_DIRECTORY")):
+        if os.environ.get(flag) == "1":
+            continue
+        try:
+            entries.extend(module.load_entries())
+        except Exception:  # pragma: no cover - 任何載入問題都不應影響查詢
+            continue
+    return entries
 
 
 def _directory_index() -> dict:
@@ -82,15 +91,18 @@ def _directory_index() -> dict:
 
     for entry in _directory_entries():
         code = str(entry.get("code", "")).upper()
-        name = str(entry.get("name_zh", ""))
-        if not code or not name:
+        name_zh = str(entry.get("name_zh") or "")
+        name_en = str(entry.get("name_en") or "")
+        if not code or (not name_zh and not name_en):
             continue
         if code in _BY_CODE:
-            continue  # 內建字典已收錄（有英文名與別稱），以內建為準
+            continue  # 內建字典已收錄（有中英文名與別稱），以內建為準
         entries.append(entry)
         by_code.setdefault(code, entry)
         by_symbol.setdefault(str(entry.get("symbol", "")).upper(), entry)
-        by_name.setdefault(name.upper(), entry)
+        for name in (name_zh, name_en):
+            if name:
+                by_name.setdefault(name.upper(), entry)
 
     _directory_cache = {
         "entries": entries,
@@ -102,24 +114,31 @@ def _directory_index() -> dict:
 
 
 def directory_status() -> dict:
-    """給 /api/health 顯示中文名稱對照表狀態。"""
-    try:
-        base = tw_directory.status()
-    except Exception as exc:  # pragma: no cover
-        base = {"loaded": 0, "error": str(exc)}
-    base["catalog_entries"] = len(CATALOG)
-    base["merged_entries"] = len(_directory_index()["entries"])
-    return base
+    """給 /api/health 顯示名稱對照表狀態。"""
+    def _safe(module) -> dict:
+        try:
+            return module.status()
+        except Exception as exc:  # pragma: no cover
+            return {"loaded": 0, "error": str(exc)}
+
+    return {
+        "catalog_entries": len(CATALOG),
+        "merged_entries": len(_directory_index()["entries"]),
+        "taiwan": _safe(tw_directory),
+        "united_states": _safe(us_directory),
+    }
 
 
 def normalize_query(raw: str | None) -> str:
-    """去除全形字元、空白與常見雜訊，統一成大寫代號字串。"""
+    """統一輸入格式：全形轉半形、壓縮空白、去掉常見前綴，轉成大寫。
+
+    這裡**保留**完整字串（例如 "SCHWAB U.S. DIVIDEND EQUITY ETF"），
+    「2330 台積電」這種「代號 + 名稱」的輸入交給 `candidate_symbols()` 處理。
+    """
     if not raw:
         return ""
-    text = unicodedata.normalize("NFKC", str(raw)).strip()
-    text = text.replace("　", " ").strip()
-    # 使用者常貼上 "2330 台積電" 或 "TW:2330"
-    text = text.split()[0] if text and " " in text else text
+    text = unicodedata.normalize("NFKC", str(raw)).replace("\u3000", " ")
+    text = " ".join(text.split())
     text = text.removeprefix("TW:").removeprefix("US:")
     return text.upper()
 
@@ -146,33 +165,36 @@ def candidate_symbols(query: str) -> list[str]:
     if not text:
         return []
 
-    known = _lookup(text)
     candidates: list[str] = []
-
+    known = _lookup(text)
     if known:
         candidates.append(known["symbol"])
 
+    first_token = text.split(" ")[0] if " " in text else text
+    token_known = _lookup(first_token) if first_token != text else None
+    if token_known:
+        # 例如貼上「2330 台積電」
+        candidates.append(token_known["symbol"])
+
     if "." in text or text.startswith("^"):
-        # 已經自帶後綴或指數符號，直接使用
-        candidates.append(text)
+        candidates.append(text)                       # 已自帶後綴或指數符號
     elif _TW_CODE_PATTERN.match(text):
-        # 台灣代號：上市（.TW）優先，找不到再試上櫃（.TWO）
-        candidates.extend([f"{text}.TW", f"{text}.TWO"])
+        candidates.extend([f"{text}.TW", f"{text}.TWO"])   # 台股：先上市再上櫃
+    elif _TW_CODE_PATTERN.match(first_token):
+        candidates.extend([f"{first_token}.TW", f"{first_token}.TWO"])
     elif re.fullmatch(r"[A-Z0-9\-]{1,10}", text):
-        # 英數字視為美股代號
-        candidates.append(text)
+        candidates.append(text)                       # 英數字視為美股代號
         if not known and len(text) >= 4:
-            # 例如輸入 "TESLA"：代號本身查不到資料時，改用字典中最相近的標的
+            # 例如輸入 "TESLA"、"PALANTIR"：代號查不到時改用名稱最相近的標的
             best = search(text, limit=1)
             if best:
                 candidates.append(best[0]["symbol"])
     elif not known:
-        # 中文名稱（例如「台積電」「高股息」）：用離線字典找最接近的標的
+        # 中文名稱或多字英文公司名（「台積電」「Schwab U.S. Dividend Equity ETF」）
         best = search(text, limit=1)
         if best:
             candidates.append(best[0]["symbol"])
 
-    # 去重但保留順序
     seen: set[str] = set()
     ordered: list[str] = []
     for symbol in candidates:
