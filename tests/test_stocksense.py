@@ -19,10 +19,14 @@ for path in (str(ROOT / "backend"), str(ROOT / "api"), str(ROOT / "models")):
 
 import numpy as np  # noqa: E402
 
+import fetcher as fetcher_module  # noqa: E402
 import forecast as forecast_engine  # noqa: E402
 import indicators as indicator_engine  # noqa: E402
 import signals as signal_engine  # noqa: E402
+import pandas as pd  # noqa: E402
+
 import symbols as symbol_utils  # noqa: E402
+import tw_directory  # noqa: E402
 
 
 def make_prices(values, start_volume: int = 1_000_000) -> list[dict]:
@@ -228,6 +232,125 @@ class SignalTests(unittest.TestCase):
         self.assertTrue(read["summary"])
 
 
+ISIN_SAMPLE = """
+<table class="h4">
+<tr><td colspan="7" align="left"><B>&nbsp;股票&nbsp;</B></td></tr>
+<tr align=center><td>有價證券代號及名稱</td><td>國際證券辨識號碼</td><td>上市日</td><td>市場別</td><td>產業別</td><td>CFICode</td><td>備註</td></tr>
+<tr><td bgcolor=#FAFAD2>1101\u3000台泥</td><td>TW0001101004</td><td>1962/02/09</td><td>上市</td><td>水泥工業</td><td>ESVUFR</td><td></td></tr>
+<tr><td>2618\u3000長榮航</td><td>TW0002618007</td><td>1996/11/26</td><td>上市</td><td>航運業</td><td>ESVUFR</td><td></td></tr>
+<tr><td>0050\u3000元大台灣50</td><td>TW0000050004</td><td>2003/06/30</td><td>上市</td><td></td><td>CEOGEU</td><td></td></tr>
+<tr><td>6446\u3000藥華藥</td><td>TW0006446002</td><td>2016/12/19</td><td>上櫃</td><td>生技醫療業</td><td>ESVUFR</td><td></td></tr>
+<tr><td>031505\u3000元大臺灣50購01</td><td>TW0310505005</td><td>2024/01/02</td><td>上市</td><td></td><td>RWSCPE</td><td></td></tr>
+</table>
+"""
+
+
+class TaiwanDirectoryTests(unittest.TestCase):
+    """證交所清單解析與中文名稱查詢。"""
+
+    def setUp(self):
+        self._original = tw_directory._entries
+        tw_directory._entries = tw_directory.parse_isin_html(ISIN_SAMPLE, "上市")
+        symbol_utils._directory_cache = None
+
+    def tearDown(self):
+        tw_directory._entries = self._original
+        symbol_utils._directory_cache = None
+
+    def test_parser_keeps_stocks_and_etfs_only(self):
+        entries = tw_directory.parse_isin_html(ISIN_SAMPLE, "上市")
+        codes = {entry["code"] for entry in entries}
+        self.assertEqual(codes, {"1101", "2618", "0050", "6446"})  # 權證被濾掉
+
+    def test_parser_detects_kind_and_market(self):
+        entries = {entry["code"]: entry for entry in tw_directory.parse_isin_html(ISIN_SAMPLE, "上市")}
+        self.assertEqual(entries["0050"]["kind"], "etf")
+        self.assertEqual(entries["1101"]["kind"], "stock")
+        self.assertEqual(entries["6446"]["symbol"], "6446.TWO")
+        self.assertEqual(entries["2618"]["symbol"], "2618.TW")
+
+    def test_chinese_name_outside_catalog_is_resolved(self):
+        self.assertEqual(symbol_utils.resolve("長榮航")["primary"], "2618.TW")
+        self.assertEqual(symbol_utils.resolve("藥華藥")["primary"], "6446.TWO")
+
+    def test_directory_entries_appear_in_search(self):
+        codes = [item["code"] for item in symbol_utils.search("長榮", limit=5)]
+        self.assertIn("2618", codes)
+        self.assertIn("2603", codes)  # 內建字典的長榮也還在
+
+    def test_catalog_entries_take_priority(self):
+        # 0050 同時存在於內建字典與證交所清單，結果不應重複
+        codes = [item["code"] for item in symbol_utils.search("0050", limit=5)]
+        self.assertEqual(codes.count("0050"), 1)
+
+    def test_bad_html_does_not_raise(self):
+        self.assertEqual(tw_directory.parse_isin_html("<html>壞掉的頁面</html>", "上市"), [])
+
+
+class DividendAndSplitTests(unittest.TestCase):
+    """配息 / 分割資料整理。"""
+
+    @staticmethod
+    def _series(pairs):
+        dates = [pd.Timestamp(date) for date, _ in pairs]
+        return pd.Series([amount for _, amount in pairs], index=pd.DatetimeIndex(dates))
+
+    def test_quarterly_frequency_detected(self):
+        pairs = [(f"{year}-{month:02d}-15", 2.5)
+                 for year in (2022, 2023, 2024) for month in (3, 6, 9, 12)]
+        summary = fetcher_module._summarize_dividends(self._series(pairs))
+        self.assertEqual(summary["frequency"], "quarterly")
+        self.assertEqual(summary["frequency_label"], "季配")
+
+    def test_monthly_frequency_detected(self):
+        pairs = [(date.strftime("%Y-%m-%d"), 0.1)
+                 for date in pd.date_range("2023-01-15", periods=24, freq="ME")]
+        summary = fetcher_module._summarize_dividends(self._series(pairs))
+        self.assertEqual(summary["frequency_label"], "月配")
+
+    def test_yearly_totals_and_streak(self):
+        pairs = [("2021-07-20", 2.0), ("2022-07-20", 2.5), ("2023-07-20", 3.0), ("2024-07-20", 3.2)]
+        summary = fetcher_module._summarize_dividends(self._series(pairs))
+        self.assertEqual([item["year"] for item in summary["yearly"]], [2021, 2022, 2023, 2024])
+        self.assertAlmostEqual(summary["yearly"][-1]["total"], 3.2)
+        self.assertEqual(summary["consecutive_years"], 4)
+        self.assertEqual(summary["years_paid"], 4)
+
+    def test_records_are_newest_first(self):
+        pairs = [("2023-07-20", 2.0), ("2024-07-20", 2.5)]
+        summary = fetcher_module._summarize_dividends(self._series(pairs))
+        self.assertEqual(summary["records"][0]["date"], "2024-07-20")
+        self.assertEqual(summary["latest"]["amount"], 2.5)
+
+    def test_yield_is_computed_from_price(self):
+        pairs = [(pd.Timestamp.utcnow().strftime("%Y-%m-%d"), 4.0)]
+        payload = {"dividends": fetcher_module._summarize_dividends(self._series(pairs))}
+        enriched = fetcher_module._with_yield(payload, 100.0)
+        self.assertEqual(enriched["dividends"]["ttm_yield_pct"], 4.0)
+
+    def test_no_dividend_history(self):
+        self.assertIsNone(fetcher_module._summarize_dividends(pd.Series(dtype=float)))
+        self.assertIsNone(fetcher_module._summarize_dividends(None))
+
+    def test_split_labels(self):
+        series = self._series([("2020-08-31", 4.0), ("2023-05-05", 0.2)])
+        splits = fetcher_module._summarize_splits(series)
+        self.assertEqual(splits["count"], 2)
+        labels = {record["date"]: record for record in splits["records"]}
+        self.assertEqual(labels["2020-08-31"]["kind"], "split")
+        self.assertIn("1 股 → 4 股", labels["2020-08-31"]["label"])
+        self.assertEqual(labels["2023-05-05"]["kind"], "reverse_split")
+        self.assertIn("5 股 → 1 股", labels["2023-05-05"]["label"])
+
+    def test_no_split_history(self):
+        self.assertIsNone(fetcher_module._summarize_splits(pd.Series(dtype=float)))
+
+    def test_timestamp_helpers(self):
+        self.assertEqual(fetcher_module._timestamp_to_date(1721260800), "2024-07-18")
+        self.assertIsNone(fetcher_module._timestamp_to_date(None))
+        self.assertEqual(fetcher_module._ratio_to_pct(0.2345), 23.45)
+
+
 class ApiTests(unittest.TestCase):
     """用假的下載函式取代 yfinance / Google News，驗證 API 組裝邏輯。"""
 
@@ -240,6 +363,21 @@ class ApiTests(unittest.TestCase):
         fetcher_module.StockDataFetcher._download = (
             lambda self, symbol, period, interval: cls.prices if symbol.endswith(".TW") or symbol == "SPY" else None
         )
+        def fake_actions(self, symbol, latest_price=None):
+            recent = pd.Timestamp.utcnow().normalize().tz_localize(None)
+            series = pd.Series(
+                [2.0, 2.5],
+                index=pd.DatetimeIndex([recent - pd.Timedelta(days=400), recent - pd.Timedelta(days=30)]),
+            )
+            payload = {
+                "status": "ok",
+                "dividends": fetcher_module._summarize_dividends(series),
+                "splits": None,
+            }
+            return fetcher_module._with_yield(payload, latest_price)
+
+        fetcher_module.StockDataFetcher.get_corporate_actions = fake_actions
+        fetcher_module.StockDataFetcher.get_fund_profile = lambda self, symbol: None
         fetcher_module.StockDataFetcher.get_company_overview = (
             lambda self, symbol, catalog_entry=None: {
                 "symbol": symbol, "name": "測試標的", "kind": (catalog_entry or {}).get("kind", "stock"),
@@ -269,11 +407,29 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         for key in ("stock_price_trends", "technical_indicators", "forecast",
-                    "market_read", "price_change_detail", "symbol"):
+                    "market_read", "price_change_detail", "symbol", "corporate_actions"):
             self.assertIn(key, payload)
         self.assertEqual(payload["symbol"]["resolved"], "0050.TW")
         self.assertEqual(payload["forecast"]["status"], "ready")
         self.assertTrue(payload["market_read"]["summary"])
+
+    def test_corporate_actions_are_included(self):
+        payload = self.client.get("/api/stock_insight?ticker=0050").get_json()
+        dividends = payload["corporate_actions"]["dividends"]
+        self.assertEqual(dividends["total_records"], 2)
+        self.assertEqual(dividends["ttm_total"], 2.5)  # 只計入近 12 個月
+        self.assertGreater(dividends["ttm_yield_pct"], 0)
+
+    def test_corporate_actions_can_be_skipped(self):
+        payload = self.client.get("/api/stock_insight?ticker=0050&include_actions=0").get_json()
+        self.assertIsNone(payload["corporate_actions"])
+
+    def test_chinese_name_not_found_gives_friendly_message(self):
+        response = self.client.get("/api/stock_insight?ticker=完全不存在的公司")
+        self.assertEqual(response.status_code, 404)
+        payload = response.get_json()
+        self.assertIn("找不到", payload["message"])
+        self.assertIn("代號", payload["hint"])
 
     def test_missing_ticker_is_rejected(self):
         self.assertEqual(self.client.get("/api/stock_insight").status_code, 400)

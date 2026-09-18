@@ -121,6 +121,44 @@ python tests/test_stocksense.py   # 40 個離線測試，不需要網路
   直接告訴你「現在是什麼狀況」。
 - **有回測依據的預測**：六個真正的時間序列模型，權重由滾動回測（walk-forward）的誤差決定，而不是寫死的常數。
 
+### 中文名稱查詢（為什麼以前打中文查不到）
+
+舊版只認得代號，中文名稱完全沒有對照表，所以打「台積電」會直接失敗。現在分三層處理：
+
+1. `backend/symbol_catalog.py`：內建約 125 檔熱門標的（含中英文名與別稱，例如「護國神山」「月月配」）。
+2. `backend/tw_directory.py`：再向證交所 ISIN 頁面取得**完整**上市／上櫃清單（約 3,000 檔，含 ETF），
+   快取在 `data/runtime/tw_securities.json`（7 天更新一次）。所以「長榮航」「京元電子」「藥華藥」
+   這種沒收錄在內建字典的名稱也查得到。
+3. 連不到證交所時自動退回內建字典，功能不會中斷；查不到時畫面會提示可能的代號。
+
+想讓部署環境不必連證交所，可以先產生離線快照：
+
+```bash
+python scripts/update_tw_securities.py    # 產生 backend/data/tw_securities.json
+```
+
+### 配息與分割
+
+`/api/stock_insight` 會一併回傳 `corporate_actions`：
+
+| 欄位 | 內容 |
+| --- | --- |
+| `dividends.yearly` | 每年配息合計與配息次數（前端畫成歷年配息長條圖） |
+| `dividends.records` | 每一次的除息日與配息金額 |
+| `dividends.ttm_total` / `ttm_yield_pct` | 近 12 個月配息總額與現金殖利率（以最新股價計算） |
+| `dividends.average_3y` | 近三年平均年配息 |
+| `dividends.frequency` | 月配 / 季配 / 半年配 / 年配（由配息次數自動判斷） |
+| `dividends.consecutive_years` | 連續配息年數 |
+| `splits.records` | 股票分割與反向分割紀錄，附「1 股 → 4 股（分割）」這類說明 |
+| `fund_profile` | ETF 專屬：前十大持股與產業分布 |
+
+另外基本資料也大幅擴充：
+
+- **個股**：公司所在地、員工數、流通股數、PE / PEG / PB / PS、每股淨值、毛利率、營業利益率、
+  淨利率、ROE、ROA、營收與盈餘成長、自由現金流、流動比率、分析師評等與目標價、下次財報日。
+- **ETF**：發行商、類別、基金型態、成立日期、資產規模、費用率、週轉率、淨值、
+  今年／三年／五年報酬、前次除息日、前十大持股、產業分布。
+
 ### API 端點
 
 | 端點 | 用途 |

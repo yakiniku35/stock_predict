@@ -29,6 +29,7 @@ const state = {
     loading: false,
     suggestions: [],
     highlighted: -1,
+    actionTab: 'dividends',
 };
 
 /* ----------------------------- 小工具 ----------------------------- */
@@ -341,6 +342,8 @@ function render() {
     renderCharts();
     renderForecast(data.forecast);
     renderOverview(data.company_overview, data.symbol);
+    renderCorporateActions(data.corporate_actions, data.company_overview);
+    renderExtraPanel(data);
     renderNews(data.news, data.news_summary);
 }
 
@@ -548,6 +551,7 @@ function renderCharts() {
     if (!data || typeof Plotly === 'undefined') return;
     drawMainChart(data);
     drawSubCharts(data);
+    if (data.corporate_actions?.dividends) drawDividendChart(data.corporate_actions.dividends);
 }
 
 function drawMainChart(data) {
@@ -758,11 +762,11 @@ function renderModelRow(row) {
 
 /* ----------------------------- 概況 ----------------------------- */
 function renderOverview(overview, symbol) {
-    const grid = $('overviewGrid');
+    const container = $('overviewSections');
     const kindTag = $('overviewKind');
 
     if (!overview) {
-        grid.innerHTML = '<div class="empty-state">暫時無法取得標的概況</div>';
+        container.innerHTML = '<div class="empty-state">暫時無法取得標的概況</div>';
         kindTag.textContent = '--';
         $('companyDesc').textContent = '';
         $('descToggle').hidden = true;
@@ -772,46 +776,106 @@ function renderOverview(overview, symbol) {
     const isEtf = overview.kind === 'etf';
     kindTag.textContent = overview.kind_label || '標的';
     kindTag.dataset.kind = overview.kind || '';
-    $('overviewTitle').textContent = `${overview.name || symbol?.display_code || ''} 概況`;
+    $('overviewTitle').textContent = `${overview.name || symbol?.display_code || ''} 基本資料`;
     $('overviewSubtitle').textContent = isEtf
-        ? '這是一檔 ETF，重點看規模、費用率與追蹤績效'
-        : '這是一檔個股，重點看獲利能力與評價';
+        ? 'ETF：規模、費用率、追蹤績效與配息條件'
+        : '個股：公司基本資料、評價、獲利能力與配息';
 
-    const rows = isEtf ? [
-        ['發行商', overview.fund_family],
-        ['類別', overview.category],
-        ['資產規模', fmtCompact(overview.total_assets)],
-        ['費用率', overview.expense_ratio != null ? fmtPercentFromRatio(overview.expense_ratio) : null],
-        ['配息率', overview.dividend_yield != null ? fmtPercentFromRatio(overview.dividend_yield) : null],
-        ['今年報酬', overview.ytd_return != null ? fmtPercentFromRatio(overview.ytd_return) : null],
-        ['三年平均', overview.three_year_return != null ? fmtPercentFromRatio(overview.three_year_return) : null],
-        ['五年平均', overview.five_year_return != null ? fmtPercentFromRatio(overview.five_year_return) : null],
-        ['Beta', overview.beta],
-        ['淨值 NAV', overview.nav_price != null ? fmtPrice(overview.nav_price) : null],
-        ['52週高', overview.fifty_two_week_high != null ? fmtPrice(overview.fifty_two_week_high) : null],
-        ['52週低', overview.fifty_two_week_low != null ? fmtPrice(overview.fifty_two_week_low) : null],
+    const pct = (value) => (value === null || value === undefined ? null : fmtPercentFromRatio(value));
+    const fixed = (value, digits = 2) => (value === null || value === undefined || value === ''
+        ? null : Number(value).toFixed(digits));
+
+    const sections = isEtf ? [
+        ['基本資料', [
+            ['代號', overview.symbol],
+            ['交易所', overview.exchange],
+            ['計價幣別', overview.currency],
+            ['發行商', overview.fund_family],
+            ['類別', overview.category],
+            ['基金型態', overview.legal_type],
+            ['成立日期', overview.inception_date],
+        ]],
+        ['規模與成本', [
+            ['資產規模', fmtCompact(overview.total_assets)],
+            ['費用率', pct(overview.expense_ratio)],
+            ['淨值 NAV', overview.nav_price != null ? fmtPrice(overview.nav_price) : null],
+            ['週轉率', pct(overview.holdings_turnover)],
+            ['Beta', fixed(overview.beta)],
+        ]],
+        ['績效與配息', [
+            ['今年報酬', pct(overview.ytd_return)],
+            ['三年平均', pct(overview.three_year_return)],
+            ['五年平均', pct(overview.five_year_return)],
+            ['近一年漲跌', overview.fifty_two_week_change_pct != null ? `${overview.fifty_two_week_change_pct}%` : null],
+            ['配息率', pct(overview.dividend_yield)],
+            ['每股配息(年)', fixed(overview.dividend_rate)],
+            ['前次除息日', overview.ex_dividend_date],
+        ]],
+        ['交易資訊', [
+            ['52週最高', overview.fifty_two_week_high != null ? fmtPrice(overview.fifty_two_week_high) : null],
+            ['52週最低', overview.fifty_two_week_low != null ? fmtPrice(overview.fifty_two_week_low) : null],
+            ['平均量(3個月)', fmtCompact(overview.average_volume)],
+            ['平均量(10日)', fmtCompact(overview.average_volume_10d)],
+        ]],
     ] : [
-        ['產業', overview.sector],
-        ['次產業', overview.industry],
-        ['市值', fmtCompact(overview.market_cap)],
-        ['本益比', overview.trailing_pe != null ? Number(overview.trailing_pe).toFixed(2) : null],
-        ['預估本益比', overview.forward_pe != null ? Number(overview.forward_pe).toFixed(2) : null],
-        ['每股盈餘', overview.eps],
-        ['股價淨值比', overview.price_to_book != null ? Number(overview.price_to_book).toFixed(2) : null],
-        ['ROE', overview.roe != null ? fmtPercentFromRatio(overview.roe) : null],
-        ['淨利率', overview.profit_margin != null ? fmtPercentFromRatio(overview.profit_margin) : null],
-        ['營收成長', overview.revenue_growth != null ? fmtPercentFromRatio(overview.revenue_growth) : null],
-        ['負債權益比', overview.debt_to_equity],
-        ['殖利率', overview.dividend_yield != null ? fmtPercentFromRatio(overview.dividend_yield) : null],
-        ['Beta', overview.beta],
-        ['員工數', overview.employees != null ? fmtCompact(overview.employees) : null],
+        ['公司基本資料', [
+            ['代號', overview.symbol],
+            ['交易所', overview.exchange],
+            ['計價幣別', overview.currency],
+            ['產業', overview.sector],
+            ['次產業', overview.industry],
+            ['所在地', [overview.city, overview.country].filter(Boolean).join('、') || null],
+            ['員工數', overview.employees != null ? fmtCompact(overview.employees) : null],
+            ['流通股數', fmtCompact(overview.shares_outstanding)],
+        ]],
+        ['評價指標', [
+            ['市值', fmtCompact(overview.market_cap)],
+            ['本益比 PE', fixed(overview.trailing_pe)],
+            ['預估本益比', fixed(overview.forward_pe)],
+            ['PEG', fixed(overview.peg_ratio)],
+            ['股價淨值比 PB', fixed(overview.price_to_book)],
+            ['股價營收比 PS', fixed(overview.price_to_sales)],
+            ['每股淨值', fixed(overview.book_value)],
+            ['Beta', fixed(overview.beta)],
+        ]],
+        ['獲利能力', [
+            ['EPS(近四季)', fixed(overview.eps)],
+            ['EPS(預估)', fixed(overview.forward_eps)],
+            ['營收', fmtCompact(overview.total_revenue)],
+            ['毛利率', pct(overview.gross_margin)],
+            ['營業利益率', pct(overview.operating_margin)],
+            ['淨利率', pct(overview.profit_margin)],
+            ['ROE', pct(overview.roe)],
+            ['ROA', pct(overview.roa)],
+            ['營收成長', pct(overview.revenue_growth)],
+            ['盈餘成長', pct(overview.earnings_growth)],
+            ['自由現金流', fmtCompact(overview.free_cashflow)],
+            ['負債權益比', fixed(overview.debt_to_equity)],
+            ['流動比率', fixed(overview.current_ratio)],
+        ]],
+        ['配息與交易', [
+            ['現金殖利率', pct(overview.dividend_yield)],
+            ['每股股利(年)', fixed(overview.dividend_rate)],
+            ['五年平均殖利率', overview.five_year_avg_dividend_yield != null ? `${Number(overview.five_year_avg_dividend_yield).toFixed(2)}%` : null],
+            ['盈餘配發率', pct(overview.payout_ratio)],
+            ['前次除息日', overview.ex_dividend_date],
+            ['52週最高', overview.fifty_two_week_high != null ? fmtPrice(overview.fifty_two_week_high) : null],
+            ['52週最低', overview.fifty_two_week_low != null ? fmtPrice(overview.fifty_two_week_low) : null],
+            ['近一年漲跌', overview.fifty_two_week_change_pct != null ? `${overview.fifty_two_week_change_pct}%` : null],
+            ['平均量(3個月)', fmtCompact(overview.average_volume)],
+        ]],
     ];
 
-    const visible = rows.filter(([, value]) => value !== null && value !== undefined && value !== '');
-    grid.innerHTML = visible.length
-        ? visible.map(([label, value]) => `
-            <div class="kv"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')
-        : '<div class="empty-state">此標的沒有提供詳細資料</div>';
+    const html = sections.map(([title, rows]) => {
+        const visible = rows.filter(([, value]) =>
+            value !== null && value !== undefined && value !== '' && value !== '--');
+        if (!visible.length) return '';
+        return `<div class="section-label">${escapeHtml(title)}</div>
+            <dl class="kv-grid">${visible.map(([label, value]) =>
+                `<div class="kv"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>`;
+    }).join('');
+
+    container.innerHTML = html || '<div class="empty-state">此標的沒有提供詳細資料</div>';
 
     const desc = $('companyDesc');
     const toggle = $('descToggle');
@@ -824,6 +888,193 @@ function renderOverview(overview, symbol) {
         desc.textContent = '';
         toggle.hidden = true;
     }
+}
+
+/* ----------------------------- 配息與分割 ----------------------------- */
+function renderCorporateActions(actions, overview) {
+    const statsEl = $('dividendStats');
+    const tagEl = $('dividendFrequency');
+    const wrapEl = $('actionTableWrap');
+    const currency = overview?.currency || '';
+    const dividends = actions?.dividends;
+    const splits = actions?.splits;
+
+    els('[data-action-tab]').forEach((button) => {
+        const key = button.dataset.actionTab;
+        button.setAttribute('aria-pressed', String(key === state.actionTab));
+        button.disabled = key === 'splits' ? !splits : !dividends;
+    });
+
+    if (!dividends) {
+        tagEl.textContent = splits ? '無配息' : '無紀錄';
+        statsEl.innerHTML = '';
+        $('dividendSubtitle').textContent = actions?.status === 'unavailable'
+            ? '暫時無法取得配息資料'
+            : '這檔標的在 Yahoo Finance 沒有配息紀錄（常見於不配息個股或剛上市的 ETF）';
+        clearChart('dividendChart');
+        wrapEl.innerHTML = splits
+            ? renderSplitTable(splits)
+            : '<div class="empty-state">沒有配息或分割紀錄</div>';
+        return;
+    }
+
+    tagEl.textContent = dividends.frequency_label || '—';
+    $('dividendSubtitle').textContent =
+        `${dividends.first_date} 起共 ${dividends.total_records} 次配息紀錄`;
+
+    statsEl.innerHTML = [
+        ['近12個月配息', `${fmtPrice(dividends.ttm_total, 2)}`, currency],
+        ['現金殖利率', dividends.ttm_yield_pct != null ? `${dividends.ttm_yield_pct}%` : '--', '以現價計算'],
+        ['近三年平均', dividends.average_3y != null ? fmtPrice(dividends.average_3y, 2) : '--', '每年配息'],
+        ['連續配息', `${dividends.consecutive_years} 年`, `累計 ${dividends.years_paid} 年有配息`],
+        ['最近除息', dividends.latest?.date || '--', `配 ${fmtPrice(dividends.latest?.amount, 2)}`],
+    ].map(([label, value, note]) => `
+        <div class="stat-chip">
+            <dt>${escapeHtml(label)}</dt>
+            <dd>${escapeHtml(value)}</dd>
+            <small>${escapeHtml(note || '')}</small>
+        </div>`).join('');
+
+    drawDividendChart(dividends);
+    renderActionTable(dividends, splits, currency);
+}
+
+function drawDividendChart(dividends) {
+    if (typeof Plotly === 'undefined') return;
+    const theme = chartTheme();
+    const years = dividends.yearly.map((item) => String(item.year));
+    const totals = dividends.yearly.map((item) => item.total);
+
+    const trace = {
+        type: 'bar',
+        x: years,
+        y: totals,
+        marker: {
+            color: totals.map((_, index) => (index === totals.length - 1 ? theme.warn : theme.accent)),
+            opacity: 0.85,
+        },
+        hovertemplate: '%{x} 年：%{y:.2f}<extra>合計配息</extra>',
+        name: '每年配息',
+    };
+
+    const layout = baseLayout(years, 210);
+    layout.margin = { l: 12, r: 52, t: 8, b: 28 };
+    layout.showlegend = false;
+    layout.xaxis.tickvals = years;
+    Plotly.react('dividendChart', [trace], layout, PLOT_CONFIG);
+}
+
+function clearChart(id) {
+    const node = $(id);
+    if (node && typeof Plotly !== 'undefined') Plotly.purge(node);
+    if (node) node.innerHTML = '';
+}
+
+function renderActionTable(dividends, splits, currency) {
+    const wrap = $('actionTableWrap');
+    if (state.actionTab === 'splits') {
+        wrap.innerHTML = splits ? renderSplitTable(splits) : '<div class="empty-state">沒有股票分割紀錄</div>';
+        return;
+    }
+    if (!dividends) {
+        wrap.innerHTML = '<div class="empty-state">沒有配息紀錄</div>';
+        return;
+    }
+    wrap.innerHTML = `
+        <table class="data-table">
+            <thead><tr><th>除息日</th><th>配息金額${currency ? `（${escapeHtml(currency)}）` : ''}</th><th>當年度累計</th></tr></thead>
+            <tbody>
+                ${dividends.records.map((record) => {
+                    const year = record.date.slice(0, 4);
+                    const yearTotal = dividends.yearly.find((item) => String(item.year) === year);
+                    return `<tr>
+                        <td>${escapeHtml(record.date)}</td>
+                        <td>${fmtPrice(record.amount, 2)}</td>
+                        <td class="muted">${yearTotal ? fmtPrice(yearTotal.total, 2) : '--'}</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>`;
+}
+
+function renderSplitTable(splits) {
+    return `
+        <table class="data-table">
+            <thead><tr><th>日期</th><th>內容</th><th>比例</th></tr></thead>
+            <tbody>
+                ${splits.records.map((record) => `
+                    <tr>
+                        <td>${escapeHtml(record.date)}</td>
+                        <td style="text-align:left">${escapeHtml(record.label)}</td>
+                        <td>${record.ratio}</td>
+                    </tr>`).join('')}
+            </tbody>
+        </table>`;
+}
+
+/* ----------------------------- 延伸資料 ----------------------------- */
+function renderExtraPanel(data) {
+    const body = $('extraBody');
+    const overview = data.company_overview || {};
+    const isEtf = overview.kind === 'etf';
+    const profile = data.fund_profile;
+
+    if (isEtf) {
+        $('extraTitle').textContent = 'ETF 持股與產業分布';
+        $('extraSubtitle').textContent = '看清楚這檔 ETF 實際買了什麼';
+
+        if (!profile || (!profile.top_holdings?.length && !profile.sector_weightings?.length)) {
+            body.innerHTML = '<div class="empty-state">Yahoo Finance 沒有提供這檔 ETF 的成分資料</div>';
+            return;
+        }
+
+        const holdings = profile.top_holdings?.length ? `
+            <div class="section-label">前十大持股</div>
+            ${profile.top_holdings.map((item) => `
+                <div class="holding">
+                    <span class="code">${escapeHtml(item.symbol || '')}</span>
+                    <span class="name">${escapeHtml(item.name || '')}</span>
+                    <span class="weight">${item.weight_pct != null ? `${Number(item.weight_pct).toFixed(2)}%` : '--'}</span>
+                </div>`).join('')}` : '';
+
+        const sectors = profile.sector_weightings?.length ? `
+            <div class="section-label">產業分布</div>
+            ${profile.sector_weightings.map((item) => `
+                <div class="bar-row">
+                    <div class="bar-head"><span>${escapeHtml(item.sector)}</span><b>${Number(item.weight_pct).toFixed(1)}%</b></div>
+                    <div class="bar-track"><span style="width:${Math.min(100, Number(item.weight_pct))}%"></span></div>
+                </div>`).join('')}` : '';
+
+        body.innerHTML = holdings + sectors;
+        return;
+    }
+
+    $('extraTitle').textContent = '分析師評等與重要日期';
+    $('extraSubtitle').textContent = '法人目標價、財報與除息時間';
+
+    const recommendationMap = {
+        strong_buy: '強力買進', buy: '買進', hold: '中立',
+        sell: '賣出', strong_sell: '強力賣出', underperform: '弱於大盤', outperform: '優於大盤',
+    };
+    const latestClose = data.stock_price_trends?.at(-1)?.close;
+    const target = overview.target_mean_price;
+    const upside = (target && latestClose) ? ((target - latestClose) / latestClose * 100) : null;
+
+    const rows = [
+        ['分析師評等', overview.recommendation ? (recommendationMap[overview.recommendation] || overview.recommendation) : null],
+        ['分析師人數', overview.analyst_count],
+        ['平均目標價', target != null ? fmtPrice(target) : null],
+        ['距目標價', upside != null ? `${fmtSigned(upside, 1, '%')}` : null],
+        ['下次財報日', overview.earnings_date],
+        ['前次除息日', overview.ex_dividend_date],
+        ['前次分割', overview.last_split_date ? `${overview.last_split_date}（${overview.last_split_factor || '--'}）` : null],
+        ['前一日收盤', overview.previous_close != null ? fmtPrice(overview.previous_close) : null],
+    ].filter(([, value]) => value !== null && value !== undefined && value !== '');
+
+    body.innerHTML = rows.length
+        ? `<dl class="kv-grid">${rows.map(([label, value]) =>
+            `<div class="kv"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>`
+        : '<div class="empty-state">Yahoo Finance 沒有提供這檔個股的評等資料</div>';
 }
 
 /* ----------------------------- 新聞 ----------------------------- */
@@ -936,6 +1187,14 @@ function initEvents() {
         syncControls();
         savePrefs();
         renderCharts();
+    });
+
+    bindGroup('[data-action-tab]', 'actionTab', (value) => {
+        state.actionTab = value;
+        els('[data-action-tab]').forEach((button) =>
+            button.setAttribute('aria-pressed', String(button.dataset.actionTab === value)));
+        const actions = state.data?.corporate_actions;
+        renderActionTable(actions?.dividends, actions?.splits, state.data?.company_overview?.currency || '');
     });
 
     $('descToggle').addEventListener('click', () => {

@@ -9,13 +9,16 @@
 
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
 
 try:  # 支援 `python backend/app.py` 與 `from backend import ...` 兩種載入方式
     from .symbol_catalog import CATALOG, QUICK_PICKS
+    from . import tw_directory
 except ImportError:  # pragma: no cover - 由執行方式決定
     from symbol_catalog import CATALOG, QUICK_PICKS
+    import tw_directory
 
 __all__ = [
     "normalize_query",
@@ -24,6 +27,7 @@ __all__ = [
     "search",
     "quick_picks",
     "classify_quote_type",
+    "directory_status",
 ]
 
 
@@ -42,8 +46,70 @@ for _entry in CATALOG:
 
 
 def _lookup(text: str) -> dict | None:
-    """以代號 / yfinance 符號 / 中英文全名查字典。"""
-    return _BY_CODE.get(text) or _BY_SYMBOL.get(text) or _BY_NAME.get(text)
+    """以代號 / yfinance 符號 / 中英文全名查字典（內建字典優先，再查證交所清單）。"""
+    hit = _BY_CODE.get(text) or _BY_SYMBOL.get(text) or _BY_NAME.get(text)
+    if hit:
+        return hit
+    directory = _directory_index()
+    return directory["by_code"].get(text) or directory["by_symbol"].get(text) or directory["by_name"].get(text)
+
+
+# --------------------------------------------------------------------------- #
+# 證交所完整清單（約 3,000 檔，讓沒收錄在內建字典的中文名稱也查得到）
+# --------------------------------------------------------------------------- #
+_directory_cache: dict | None = None
+
+
+def _directory_entries() -> list[dict]:
+    if os.environ.get("STOCKSENSE_DISABLE_TW_DIRECTORY") == "1":
+        return []
+    try:
+        return tw_directory.load_entries()
+    except Exception:  # pragma: no cover - 任何載入問題都不應影響查詢
+        return []
+
+
+def _directory_index() -> dict:
+    """建立代號 / 名稱索引；只在第一次使用時建立，之後重複使用。"""
+    global _directory_cache
+    if _directory_cache is not None:
+        return _directory_cache
+
+    by_code: dict[str, dict] = {}
+    by_symbol: dict[str, dict] = {}
+    by_name: dict[str, dict] = {}
+    entries: list[dict] = []
+
+    for entry in _directory_entries():
+        code = str(entry.get("code", "")).upper()
+        name = str(entry.get("name_zh", ""))
+        if not code or not name:
+            continue
+        if code in _BY_CODE:
+            continue  # 內建字典已收錄（有英文名與別稱），以內建為準
+        entries.append(entry)
+        by_code.setdefault(code, entry)
+        by_symbol.setdefault(str(entry.get("symbol", "")).upper(), entry)
+        by_name.setdefault(name.upper(), entry)
+
+    _directory_cache = {
+        "entries": entries,
+        "by_code": by_code,
+        "by_symbol": by_symbol,
+        "by_name": by_name,
+    }
+    return _directory_cache
+
+
+def directory_status() -> dict:
+    """給 /api/health 顯示中文名稱對照表狀態。"""
+    try:
+        base = tw_directory.status()
+    except Exception as exc:  # pragma: no cover
+        base = {"loaded": 0, "error": str(exc)}
+    base["catalog_entries"] = len(CATALOG)
+    base["merged_entries"] = len(_directory_index()["entries"])
+    return base
 
 
 def normalize_query(raw: str | None) -> str:
@@ -147,11 +213,11 @@ def resolve(query: str) -> dict:
 
 def _score_entry(entry: dict, query: str) -> int:
     """搜尋排序分數，分數越高越前面；0 代表不匹配。"""
-    code = entry["code"].upper()
-    symbol = entry["symbol"].upper()
-    name_zh = entry["name_zh"]
-    name_en = entry["name_en"].upper()
-    tags = [tag.upper() for tag in entry.get("tags", [])]
+    code = str(entry.get("code", "")).upper()
+    symbol = str(entry.get("symbol", "")).upper()
+    name_zh = str(entry.get("name_zh", ""))
+    name_en = str(entry.get("name_en") or "").upper()
+    tags = [str(tag).upper() for tag in entry.get("tags", [])]
 
     if query == code or query == symbol:
         return 1000
@@ -193,19 +259,39 @@ def search(query: str, limit: int = 10, kind: str | None = None) -> list[dict]:
         if score > 0:
             scored.append((score, entry))
 
+    # 內建字典的結果不足時，再從證交所完整清單補齊（中文名稱查詢主要靠這裡）
+    if len(scored) < limit:
+        for entry in _directory_index()["entries"]:
+            if kind and entry.get("kind") != kind:
+                continue
+            score = _score_entry(entry, text)
+            if score > 0:
+                scored.append((score - 5, entry))  # 略低於內建字典，讓熱門標的排前面
+
     scored.sort(key=lambda item: (-item[0], item[1]["code"]))
-    return [_public(entry) for _, entry in scored[:limit]]
+
+    seen: set[str] = set()
+    results: list[dict] = []
+    for _, entry in scored:
+        if entry["code"] in seen:
+            continue
+        seen.add(entry["code"])
+        results.append(_public(entry))
+        if len(results) >= limit:
+            break
+    return results
 
 
 def _public(entry: dict) -> dict:
     """輸出給前端的欄位（不含內部 tags）。"""
     return {
-        "code": entry["code"],
-        "symbol": entry["symbol"],
-        "name_zh": entry["name_zh"],
-        "name_en": entry["name_en"],
-        "market": entry["market"],
-        "kind": entry["kind"],
+        "code": entry.get("code", ""),
+        "symbol": entry.get("symbol", ""),
+        "name_zh": entry.get("name_zh", ""),
+        "name_en": entry.get("name_en") or "",
+        "market": entry.get("market", ""),
+        "kind": entry.get("kind", "stock"),
+        "industry": entry.get("industry") or None,
     }
 
 

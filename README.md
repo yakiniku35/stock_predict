@@ -90,6 +90,28 @@ Highlights:
 - **Auto signal reading**: 11 indicators (trend, RSI, MACD, KD, Bollinger, BIAS, volume/OBV, 52w position, volatility, news sentiment, model forecast) are scored into a -100..+100 verdict with a generated Traditional Chinese explanation.
 - **Backtested forecasting**: six real time-series models, weighted by walk-forward backtest error instead of hard-coded constants.
 
+### 中文名稱查詢
+
+輸入中文（例如「台積電」「長榮航」「高股息」）也能找到標的：
+
+1. `backend/symbol_catalog.py` bundles ~125 popular symbols with Chinese and English names.
+2. `backend/tw_directory.py` additionally pulls the full TWSE/TPEx listing (~3,000 stocks and ETFs)
+   from the exchange ISIN page, caches it under `data/runtime/` for 7 days, and degrades to the
+   bundled catalog if the network is unavailable.
+3. Optional offline snapshot for deployment: `python scripts/update_tw_securities.py`.
+
+### Dividends and splits
+
+`/api/stock_insight` also returns `corporate_actions`:
+
+- `dividends.yearly`: dividend total and payment count per year (drives the bar chart).
+- `dividends.records`: every ex-dividend date and amount.
+- `dividends.ttm_total` / `ttm_yield_pct` / `average_3y`: trailing 12-month dividend and yield.
+- `dividends.frequency`: monthly / quarterly / semi-annual / annual, detected from payment counts.
+- `dividends.consecutive_years`: consecutive years with a dividend.
+- `splits.records`: split and reverse-split history with readable labels.
+- `fund_profile` (ETF only): top 10 holdings and sector weightings.
+
 ### API endpoints
 
 | Endpoint | Purpose |

@@ -260,9 +260,41 @@
                     </div>
                     <span class="tag" id="overviewKind">--</span>
                 </div>
-                <dl class="kv-grid" id="overviewGrid"></dl>
+                <div id="overviewSections"></div>
                 <div class="company-desc" id="companyDesc"></div>
                 <button class="desc-toggle" id="descToggle" type="button" hidden>顯示完整介紹</button>
+            </section>
+        </div>
+
+        <!-- ============ 配息 / 分割 + 額外資料 ============ -->
+        <div class="grid-2">
+            <section class="panel loadable" aria-label="配息與分割">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title">配息與分割紀錄</div>
+                        <div class="panel-sub" id="dividendSubtitle">歷年現金股利與股票分割（資料來自 Yahoo Finance）</div>
+                    </div>
+                    <span class="tag" id="dividendFrequency">--</span>
+                </div>
+
+                <div class="stat-chips" id="dividendStats"></div>
+                <div id="dividendChart" class="chart-body" style="height: 210px;"></div>
+
+                <div class="table-tabs" id="actionTabs" role="tablist">
+                    <button class="chip" type="button" role="tab" data-action-tab="dividends" aria-pressed="true">配息明細</button>
+                    <button class="chip" type="button" role="tab" data-action-tab="splits" aria-pressed="false">分割紀錄</button>
+                </div>
+                <div id="actionTableWrap" class="table-wrap"></div>
+            </section>
+
+            <section class="panel loadable" aria-label="延伸資料">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title" id="extraTitle">延伸資料</div>
+                        <div class="panel-sub" id="extraSubtitle">ETF 看持股與產業分布，個股看評等與重要日期</div>
+                    </div>
+                </div>
+                <div id="extraBody"></div>
             </section>
         </div>
 

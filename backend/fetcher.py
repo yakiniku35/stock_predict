@@ -10,9 +10,11 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 import time
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -221,14 +223,26 @@ class StockDataFetcher:
             "kind_label": {"etf": "ETF", "stock": "股票", "index": "指數",
                            "fund": "基金", "crypto": "加密貨幣"}.get(kind, "標的"),
             "currency": info.get("currency") or ("TWD" if symbol.endswith((".TW", ".TWO")) else "USD"),
-            "exchange": info.get("exchange"),
+            "exchange": info.get("exchange") or info.get("fullExchangeName"),
+            "market": info.get("market"),
             "website": info.get("website"),
             "description": info.get("longBusinessSummary") or info.get("description"),
             "market_cap": info.get("marketCap"),
             "dividend_yield": info.get("dividendYield") or info.get("yield"),
+            "dividend_rate": info.get("dividendRate") or info.get("trailingAnnualDividendRate"),
+            "trailing_dividend_yield": info.get("trailingAnnualDividendYield"),
+            "five_year_avg_dividend_yield": info.get("fiveYearAvgDividendYield"),
+            "payout_ratio": info.get("payoutRatio"),
+            "ex_dividend_date": _timestamp_to_date(info.get("exDividendDate")),
+            "last_split_factor": info.get("lastSplitFactor"),
+            "last_split_date": _timestamp_to_date(info.get("lastSplitDate")),
             "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
             "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+            "fifty_two_week_change_pct": _ratio_to_pct(info.get("52WeekChange")),
             "average_volume": info.get("averageVolume"),
+            "average_volume_10d": info.get("averageDailyVolume10Day"),
+            "shares_outstanding": info.get("sharesOutstanding"),
+            "previous_close": info.get("previousClose"),
         }
 
         if kind == "etf":
@@ -242,23 +256,41 @@ class StockDataFetcher:
                 "three_year_return": info.get("threeYearAverageReturn"),
                 "five_year_return": info.get("fiveYearAverageReturn"),
                 "beta": info.get("beta3Year") or info.get("beta"),
-                "inception_date": info.get("fundInceptionDate"),
+                "inception_date": _timestamp_to_date(info.get("fundInceptionDate")),
+                "legal_type": info.get("legalType"),
+                "holdings_turnover": info.get("annualHoldingsTurnover"),
             })
         else:
             overview.update({
                 "sector": info.get("sector"),
                 "industry": info.get("industry"),
+                "country": info.get("country"),
+                "city": info.get("city"),
                 "trailing_pe": info.get("trailingPE"),
                 "forward_pe": info.get("forwardPE"),
+                "peg_ratio": info.get("trailingPegRatio") or info.get("pegRatio"),
                 "eps": info.get("trailingEps"),
+                "forward_eps": info.get("forwardEps"),
+                "book_value": info.get("bookValue"),
+                "price_to_book": info.get("priceToBook"),
+                "price_to_sales": info.get("priceToSalesTrailing12Months"),
                 "profit_margin": info.get("profitMargins"),
                 "operating_margin": info.get("operatingMargins"),
+                "gross_margin": info.get("grossMargins"),
                 "roe": info.get("returnOnEquity"),
+                "roa": info.get("returnOnAssets"),
                 "debt_to_equity": info.get("debtToEquity"),
+                "current_ratio": info.get("currentRatio"),
+                "total_revenue": info.get("totalRevenue"),
+                "revenue_growth": info.get("revenueGrowth"),
+                "earnings_growth": info.get("earningsGrowth"),
+                "free_cashflow": info.get("freeCashflow"),
                 "beta": info.get("beta"),
                 "employees": info.get("fullTimeEmployees"),
-                "price_to_book": info.get("priceToBook"),
-                "revenue_growth": info.get("revenueGrowth"),
+                "target_mean_price": info.get("targetMeanPrice"),
+                "recommendation": info.get("recommendationKey"),
+                "analyst_count": info.get("numberOfAnalystOpinions"),
+                "earnings_date": _timestamp_to_date(info.get("earningsTimestamp")),
             })
 
         self._profile_cache.set(symbol, overview)
@@ -300,6 +332,281 @@ class StockDataFetcher:
             print(f"[fetcher] 讀取新聞情緒資料錯誤: {exc}")
             return []
 
+    # ------------------------------------------------------------------ #
+    # 配息與分割（公司行動）
+    # ------------------------------------------------------------------ #
+    def get_corporate_actions(self, symbol: str, latest_price: float | None = None) -> dict:
+        """取得歷年配息與股票分割紀錄。
+
+        回傳的 `dividends.yearly` 是「每年合計配息」，前端用來畫歷年配息長條圖；
+        `records` 則是每一次的除息明細。
+        """
+        if not symbol or yf is None:
+            return {"status": "unavailable", "dividends": None, "splits": None}
+
+        cache_key = ("actions", symbol)
+        cached = self._profile_cache.get(cache_key)
+        if cached is not None:
+            return _with_yield(cached, latest_price)
+
+        try:
+            ticker = yf.Ticker(symbol)
+            dividends = ticker.dividends
+            splits = ticker.splits
+        except Exception as exc:  # pragma: no cover - 網路例外
+            print(f"[fetcher] {symbol} 配息 / 分割讀取失敗: {exc}")
+            return {"status": "unavailable", "dividends": None, "splits": None,
+                    "error": str(exc)}
+
+        payload = {
+            "status": "ok",
+            "dividends": _summarize_dividends(dividends),
+            "splits": _summarize_splits(splits),
+        }
+        if not payload["dividends"] and not payload["splits"]:
+            payload["status"] = "empty"
+        self._profile_cache.set(cache_key, payload)
+        return _with_yield(payload, latest_price)
+
+    # ------------------------------------------------------------------ #
+    # ETF 成分（前十大持股 / 產業分布）
+    # ------------------------------------------------------------------ #
+    def get_fund_profile(self, symbol: str) -> dict | None:
+        """ETF 專屬資料；yfinance 版本或資料缺漏時回傳 None。"""
+        if not symbol or yf is None:
+            return None
+
+        cache_key = ("fund", symbol)
+        cached = self._profile_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            funds_data = yf.Ticker(symbol).funds_data
+            overview = dict(getattr(funds_data, "fund_overview", None) or {})
+            holdings_frame = getattr(funds_data, "top_holdings", None)
+            sectors = dict(getattr(funds_data, "sector_weightings", None) or {})
+            description = getattr(funds_data, "description", None)
+        except Exception:
+            return None
+
+        holdings: list[dict] = []
+        try:
+            if holdings_frame is not None and not holdings_frame.empty:
+                for index, row in holdings_frame.head(10).iterrows():
+                    weight = _clean_number(row.get("Holding Percent"))
+                    holdings.append({
+                        "symbol": str(index),
+                        "name": str(row.get("Name") or index),
+                        "weight_pct": round(weight * 100.0, 2) if weight is not None and weight <= 1 else weight,
+                    })
+        except Exception:
+            holdings = []
+
+        profile = {
+            "description": description,
+            "overview": {key: _clean_number(value) if isinstance(value, (int, float)) else value
+                         for key, value in overview.items()},
+            "top_holdings": holdings,
+            "sector_weightings": [
+                {"sector": key, "weight_pct": round(float(value) * 100.0, 2)}
+                for key, value in sorted(sectors.items(), key=lambda item: -float(item[1] or 0))
+                if value is not None
+            ][:10],
+        }
+        if not holdings and not profile["sector_weightings"] and not overview:
+            return None
+        self._profile_cache.set(cache_key, profile)
+        return profile
+
     # 舊介面：保留給既有腳本 / 測試使用
     def get_historical_prices(self, ticker: str, period: str = "1mo", interval: str = "1d"):
         return self.fetch_prices(ticker, period=period, interval=interval)["prices"]
+
+
+# --------------------------------------------------------------------------- #
+# 配息 / 分割整理（純函式，方便測試）
+# --------------------------------------------------------------------------- #
+FREQUENCY_LABELS = {
+    "monthly": "月配",
+    "quarterly": "季配",
+    "semi_annual": "半年配",
+    "annual": "年配",
+    "irregular": "不定期",
+    "unknown": "—",
+}
+
+
+def _timestamp_to_date(value) -> str | None:
+    """yfinance 的日期欄位多半是 Unix timestamp，轉成 YYYY-MM-DD。"""
+    if value in (None, "", 0):
+        return None
+    try:
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(float(value), tz=timezone.utc).strftime("%Y-%m-%d")
+        return pd.Timestamp(value).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
+def _ratio_to_pct(value) -> float | None:
+    numeric = _clean_number(value)
+    if numeric is None:
+        return None
+    return round(numeric * 100.0, 2)
+
+
+def _clean_number(value):
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return numeric
+
+
+def _to_date_string(value) -> str | None:
+    try:
+        return pd.Timestamp(value).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
+def _detect_frequency(yearly: list[dict]) -> str:
+    """用最近幾個完整年度的配息次數判斷配息頻率。"""
+    current_year = datetime.now(timezone.utc).year
+    counts = [item["count"] for item in yearly if item["year"] < current_year][-3:]
+    if not counts:
+        return "unknown"
+    average = sum(counts) / len(counts)
+    if average >= 10:
+        return "monthly"
+    if average >= 3.4:
+        return "quarterly"
+    if average >= 1.6:
+        return "semi_annual"
+    if average >= 0.8:
+        return "annual"
+    return "irregular"
+
+
+def _consecutive_years(yearly: list[dict]) -> int:
+    """從最近一個有配息的年度往回數，連續配息幾年。"""
+    years = {item["year"] for item in yearly if item["total"] > 0}
+    if not years:
+        return 0
+    cursor = max(years)
+    streak = 0
+    while cursor in years:
+        streak += 1
+        cursor -= 1
+    return streak
+
+
+def _summarize_dividends(series) -> dict | None:
+    """把 yfinance 的配息 Series 整理成前端好用的結構。"""
+    if series is None or len(series) == 0:
+        return None
+
+    points: list[tuple[str, float]] = []
+    for timestamp, value in series.items():
+        amount = _clean_number(value)
+        date_text = _to_date_string(timestamp)
+        if amount is None or amount <= 0 or not date_text:
+            continue
+        points.append((date_text, round(amount, 4)))
+    if not points:
+        return None
+
+    points.sort(key=lambda item: item[0])
+
+    yearly_map: dict[int, dict] = {}
+    for date_text, amount in points:
+        year = int(date_text[:4])
+        entry = yearly_map.setdefault(year, {"year": year, "total": 0.0, "count": 0})
+        entry["total"] += amount
+        entry["count"] += 1
+    yearly = [
+        {"year": item["year"], "total": round(item["total"], 4), "count": item["count"]}
+        for item in sorted(yearly_map.values(), key=lambda item: item["year"])
+    ][-15:]
+
+    today = pd.Timestamp.utcnow().tz_localize(None)
+    ttm_total = round(sum(
+        amount for date_text, amount in points
+        if (today - pd.Timestamp(date_text)).days <= 365
+    ), 4)
+
+    current_year = datetime.now(timezone.utc).year
+    complete_years = [item for item in yearly if item["year"] < current_year]
+    average_3y = round(sum(item["total"] for item in complete_years[-3:]) / len(complete_years[-3:]), 4) if complete_years else None
+
+    frequency = _detect_frequency(yearly)
+    latest_date, latest_amount = points[-1]
+
+    return {
+        "records": [
+            {"date": date_text, "amount": amount}
+            for date_text, amount in reversed(points[-60:])
+        ],
+        "yearly": yearly,
+        "ttm_total": ttm_total,
+        "average_3y": average_3y,
+        "frequency": frequency,
+        "frequency_label": FREQUENCY_LABELS.get(frequency, "—"),
+        "years_paid": len([item for item in yearly if item["total"] > 0]),
+        "consecutive_years": _consecutive_years(yearly),
+        "latest": {"date": latest_date, "amount": latest_amount},
+        "total_records": len(points),
+        "first_date": points[0][0],
+    }
+
+
+def _summarize_splits(series) -> dict | None:
+    """整理股票分割（拆股 / 反向分割）紀錄。"""
+    if series is None or len(series) == 0:
+        return None
+
+    records: list[dict] = []
+    for timestamp, value in series.items():
+        ratio = _clean_number(value)
+        date_text = _to_date_string(timestamp)
+        if not ratio or ratio <= 0 or not date_text:
+            continue
+        if ratio >= 1:
+            label = f"1 股 → {_format_ratio(ratio)} 股（分割）"
+            kind = "split"
+        else:
+            label = f"{_format_ratio(1 / ratio)} 股 → 1 股（反向分割）"
+            kind = "reverse_split"
+        records.append({"date": date_text, "ratio": round(ratio, 4), "label": label, "kind": kind})
+
+    if not records:
+        return None
+    records.sort(key=lambda item: item["date"], reverse=True)
+    return {"records": records[:20], "count": len(records), "latest": records[0]}
+
+
+def _format_ratio(value: float) -> str:
+    return f"{value:.0f}" if abs(value - round(value)) < 1e-6 else f"{value:.2f}"
+
+
+def _with_yield(payload: dict, latest_price: float | None) -> dict:
+    """依最新股價換算現金殖利率（快取的內容不含價格，所以每次重算）。"""
+    dividends = payload.get("dividends")
+    if not dividends:
+        return payload
+
+    enriched = dict(payload)
+    dividend_block = dict(dividends)
+    price = _clean_number(latest_price)
+    if price and price > 0:
+        ttm = dividend_block.get("ttm_total") or 0.0
+        average = dividend_block.get("average_3y")
+        dividend_block["ttm_yield_pct"] = round(ttm / price * 100.0, 2)
+        dividend_block["average_3y_yield_pct"] = (
+            round(average / price * 100.0, 2) if average else None
+        )
+    enriched["dividends"] = dividend_block
+    return enriched

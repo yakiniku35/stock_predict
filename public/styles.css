@@ -575,6 +575,75 @@ kbd {
 .badge[data-sentiment="negative"] { color: var(--down); background: color-mix(in srgb, var(--down) 14%, transparent); }
 .badge[data-sentiment="neutral"] { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 14%, transparent); }
 
+/* ========================== 配息 / 延伸資料 ========================== */
+.stat-chips {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 0.5rem;
+    margin-bottom: var(--space-3);
+}
+
+.stat-chip {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-raised);
+    padding: 0.55rem 0.7rem;
+}
+.stat-chip dt { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; }
+.stat-chip dd {
+    font-size: 1.05rem; font-weight: 700; margin-top: 0.1rem;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+}
+.stat-chip small { font-size: 0.68rem; color: var(--text-subtle); font-weight: 500; }
+
+.table-tabs { display: flex; gap: 0.4rem; margin: var(--space-3) 0 0.5rem; }
+.table-wrap { max-height: 240px; overflow-y: auto; }
+
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+.data-table th {
+    position: sticky; top: 0; z-index: 1;
+    text-align: right; font-size: 0.7rem; font-weight: 600;
+    color: var(--text-subtle); text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 0.35rem 0.5rem;
+    background: var(--surface-solid);
+    border-bottom: 1px solid var(--border);
+}
+.data-table th:first-child, .data-table td:first-child { text-align: left; }
+.data-table td {
+    padding: 0.42rem 0.5rem; text-align: right;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+}
+.data-table tbody tr:hover { background: var(--surface-hover); }
+
+.section-label {
+    font-size: 0.72rem; font-weight: 700; color: var(--text-subtle);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin: var(--space-3) 0 0.5rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--border);
+}
+.section-label:first-child { margin-top: 0; }
+
+.holding {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.42rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.84rem;
+}
+.holding .code { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 3.6rem; }
+.holding .name { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.holding .weight { font-weight: 650; font-variant-numeric: tabular-nums; }
+
+.bar-row { display: grid; gap: 0.3rem; padding: 0.4rem 0; }
+.bar-row .bar-head { display: flex; justify-content: space-between; font-size: 0.82rem; }
+.bar-row .bar-head b { font-variant-numeric: tabular-nums; }
+.bar-track { height: 6px; border-radius: 999px; background: var(--grid); overflow: hidden; }
+.bar-track span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--info)); }
+
 /* ========================== 狀態 ========================== */
 .empty-state {
     display: grid; place-items: center; gap: 0.5rem;

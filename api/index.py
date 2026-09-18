@@ -119,6 +119,7 @@ def health_check():
             "forecast_models": list(forecast_engine.MODEL_LABELS.keys()),
             "auto_signal_reading": True,
         },
+        "symbol_directory": symbol_utils.directory_status(),
         "sentiment_models": {
             "default": "rnn",
             "available": ["rnn", "lexicon"],
@@ -157,6 +158,7 @@ def get_stock_insight():
     period = request.args.get("period", "1y")
     interval = request.args.get("interval", "1d")
     include_news = request.args.get("include_news", "1") not in {"0", "false", "no"}
+    include_actions = request.args.get("include_actions", "1") not in {"0", "false", "no"}
     model_type = (request.args.get("model_type") or "rnn").strip().lower()
 
     try:
@@ -180,15 +182,25 @@ def get_stock_insight():
 
         if not prices:
             suggestions = symbol_utils.search(ticker, limit=5)
+            has_chinese = any("\u4e00" <= char <= "\u9fff" for char in str(ticker))
+            if has_chinese and not resolution.get("candidates"):
+                message = f"找不到「{ticker}」這個名稱"
+                hint = ("請確認公司或 ETF 的全名（例如「長榮航」而非「長榮航空」），"
+                        "或直接輸入代號（例如 2618）；輸入時下方的建議清單也可以直接點選。")
+            else:
+                message = result.get("error") or f"無法取得 {ticker} 的價格資料"
+                hint = ("台股請輸入 4~6 位代號（例如 2330、0050、00878），"
+                        "美股請輸入英文代號（例如 SPY、QQQ）")
             return jsonify({
                 "status": "error",
-                "message": result.get("error") or f"無法取得 {ticker} 的價格資料",
-                "hint": "台股請輸入 4~6 位代號（例如 2330、0050、00878），美股請輸入英文代號（例如 SPY、QQQ）",
+                "message": message,
+                "hint": hint,
                 "suggestions": suggestions,
             }), 404
 
         symbol = result["symbol"]
         catalog_entry = resolution.get("catalog")
+        latest_price = indicator_engine.to_float_or_none(prices[-1].get("close"))
         overview = fetcher.get_company_overview(symbol, catalog_entry)
         indicators = indicator_engine.compute_indicators(prices)
         snapshot = indicator_engine.latest_snapshot(prices, indicators)
@@ -205,6 +217,13 @@ def get_stock_insight():
             sentiment_summary = news_bundle.get("summary")
 
         instrument_kind = (overview or {}).get("kind") or resolution.get("kind")
+
+        corporate_actions = None
+        fund_profile = None
+        if include_actions:
+            corporate_actions = fetcher.get_corporate_actions(symbol, latest_price=latest_price)
+            if instrument_kind == "etf":
+                fund_profile = fetcher.get_fund_profile(symbol)
         market_read = signal_engine.analyze(
             snapshot=snapshot,
             sentiment_summary=sentiment_summary,
@@ -233,6 +252,7 @@ def get_stock_insight():
                 "interval": interval,
                 "forecast_horizon": forecast_horizon,
                 "include_news": include_news,
+                "include_actions": include_actions,
             },
             "metrics": {
                 "total_fetched_prices": len(prices),
@@ -241,6 +261,8 @@ def get_stock_insight():
             },
             "stock_price_trends": prices,
             "company_overview": overview,
+            "corporate_actions": corporate_actions,
+            "fund_profile": fund_profile,
             "technical_indicators": indicators,
             "indicator_snapshot": snapshot,
             "price_change_detail": _price_change_detail(prices),
