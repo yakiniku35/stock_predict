@@ -1,15 +1,15 @@
 #!/bin/bash
+# 快速檢查 API 是否正常（需先執行 ./start.sh）
+BASE="${BASE:-http://127.0.0.1:5000}"
 
-# 測試本地 API (啟動 backend/app.py 後執行)
-echo "🧪 測試本地 API..."
-echo ""
+echo "== /api/health =="
+curl -s "$BASE/api/health" | head -c 400; echo; echo
 
-echo "1️⃣ 測試健康檢查..."
-curl -s http://localhost:5000/api/health | python3 -m json.tool
-echo ""
+echo "== /api/symbol_search?q=00878 =="
+curl -s "$BASE/api/symbol_search?q=00878" | head -c 400; echo; echo
 
-echo "2️⃣ 測試股票查詢 (2330)..."
-curl -s "http://localhost:5000/api/stock_insight?ticker=2330&period=1mo&interval=1d" | python3 -m json.tool | head -30
-echo ""
+echo "== /api/stock_insight?ticker=0050 (ETF) =="
+curl -s "$BASE/api/stock_insight?ticker=0050&period=1y&interval=1d" | head -c 400; echo; echo
 
-echo "✅ 測試完成！"
+echo "== /api/stock_insight?ticker=2330 (個股) =="
+curl -s "$BASE/api/stock_insight?ticker=2330&period=6mo&interval=1d" | head -c 400; echo

@@ -8,10 +8,12 @@
 
 ## 功能
 
+- **股票與 ETF 都支援**：涵蓋台股上市／上櫃與美股，可用中文或英文搜尋標的。
 - 使用 [yfinance](https://github.com/ranaroussi/yfinance) 取得歷史股價與財務指標。
 - 透過爬蟲蒐集新聞、社群討論等輔助市場資訊。
 - 提供詞典規則 baseline，並已支援 RNN/LSTM 情緒模型的訓練與推論流程；後續可再擴充 transformer。
-- 整合價格、指標與情緒特徵，預測股票價格走勢方向。
+- 自動判讀每一項技術指標，並產生白話的繁體中文說明，直接告訴你現在是什麼狀況。
+- 以六個時間序列模型組成的「回測加權整合」預測走勢，並附上信賴區間。
 - 使用 [Plotly](https://github.com/plotly/plotly.py) 呈現互動式圖表與分析結果。
 
 ## 快速開始
@@ -100,30 +102,83 @@ python -m crawler.news_scraper \
 - `article_link_include` / `article_link_exclude`: 連結白名單與黑名單（regex）
 - `rss_use_article_content`: RSS 是否進一步進文章頁抓完整內文
 
-## 專案架構
+## 網頁應用（v2）
 
-目前結構：
+一個指令就能啟動：
 
-```text
-stock_predict/
-├── README.md
-├── README.zh-TW.md
-├── LICENSE
-├── requirements.txt
-└── .gitignore
+```bash
+./start.sh          # 開啟 http://127.0.0.1:5000
+python tests/test_stocksense.py   # 40 個離線測試，不需要網路
 ```
 
-預計結構：
+### 主要功能
+
+- **股票與 ETF 都查得到**：台股上市／上櫃代號會自動補後綴（`0050`、`00878`、`006208` → `.TW`，`6488` → `.TWO`），
+  美股與美股 ETF（`SPY`、`QQQ`、`NVDA`）直接輸入即可，也支援中文名稱（`台積電`、`高股息`）。
+- **深色 / 淺色 / 自動主題**：右上角切換，選擇會記在瀏覽器裡，圖表配色也會跟著變。
+- **指標自動判讀**：系統會計算 11 項訊號（均線結構、RSI、MACD、KD、布林通道、乖離率、量能／OBV、
+  波段位階、波動風險、新聞情緒、模型預測），換算成 -100 ~ +100 的多空分數，並自動產生一段繁體中文說明，
+  直接告訴你「現在是什麼狀況」。
+- **有回測依據的預測**：六個真正的時間序列模型，權重由滾動回測（walk-forward）的誤差決定，而不是寫死的常數。
+
+### API 端點
+
+| 端點 | 用途 |
+| --- | --- |
+| `GET /api/health` | 服務狀態與功能旗標 |
+| `GET /api/symbol_search?q=00878` | 股票／ETF 自動完成（離線字典，不需外網） |
+| `GET /api/stock_insight?ticker=0050&period=1y&interval=1d&forecast_horizon=7` | 價格、指標、預測、判讀、新聞一次取得 |
+| `GET /api/search?ticker=2330` | 只取新聞情緒 |
+
+`/api/stock_insight` 會回傳：
+
+- `symbol`：實際使用的 yfinance 代號、市場別、標的種類（`stock` / `etf` / `index`）。
+- `company_overview`：個股看基本面；ETF 會改成費用率、資產規模、淨值、歷史報酬等欄位。
+- `technical_indicators`：`SMA(5/20/60/120/240)`、`EMA`、`BB`、`MACD`、`KD`、`RSI`、`BIAS`、`AD`、`ATR`、`OBV`。
+- `price_change_detail`：日內 / 1日 / 1週 / 1月 / 3月漲跌。
+- `forecast`：`holt_damped`、`theta`、`ridge_ar`、`knn_analog`、`drift`、`ema_momentum` 六個模型與加權整合結果，
+  附 80% 信賴區間；每個模型都會回報自己的回測誤差（MAPE）、方向準確率與權重。
+- `market_read`：多空分數、判定結果、每個指標的判讀，以及一段完整的中文總結。
+
+可選的預測天數：`5`、`7`、`14`、`30` 天。
+
+### 預測模型說明
+
+| 模型 | 說明 |
+| --- | --- |
+| Holt 阻尼趨勢 | 二次指數平滑加上阻尼係數，參數用格點搜尋擬合 |
+| Theta 法 | M3 競賽經典基準，結合線性趨勢與指數平滑 |
+| Ridge 自迴歸 | 以落後報酬率、動量、波動度為特徵的脊迴歸（閉式解） |
+| 歷史型態比對 | k 近鄰：找出與最近走勢最相似的歷史片段，取其後續走勢平均 |
+| 漂移隨機漫步 | ARIMA(0,1,0) with drift，作為誠實的基準線 |
+| EMA 動量 | 快慢均線差距外推，並隨時間阻尼衰減 |
+
+## 專案架構
 
 ```text
 stock_predict/
-├── backend/          # API、資料處理、模型推論
-├── frontend/         # Plotly/Dash 或網頁介面
-├── data/             # 本機資料集與快取行情資料
-├── models/           # 訓練腳本與模型檔案
-├── crawlers/         # 新聞與社群資料蒐集器
-├── tests/            # 單元測試與整合測試
-└── requirements.txt
+├── api/
+│   └── index.py              # Flask 應用：所有 HTTP 路由（Vercel 也用這份）
+├── backend/
+│   ├── app.py                # 本機開發入口（直接沿用 api/index.py）
+│   ├── fetcher.py            # yfinance 串接、ETF／上櫃代號解析、TTL 快取
+│   ├── symbols.py            # 代號解析與離線搜尋
+│   ├── symbol_catalog.py     # 熱門台股／美股／ETF 離線字典
+│   ├── indicators.py         # 技術指標序列與最新快照
+│   ├── forecast.py           # 六個預測模型與滾動回測加權
+│   ├── signals.py            # 指標自動判讀 → 繁體中文說明
+│   └── news.py               # Google News RSS 與 RNN／詞典情緒分析
+├── public/
+│   ├── index.html            # 單頁式前端介面
+│   ├── styles.css            # 設計系統（深色／淺色變數）
+│   └── app.js                # 狀態管理、圖表、主題切換
+├── models/                   # 情緒模型訓練／推論腳本與權重
+├── crawler/                  # 多來源新聞爬蟲
+├── tests/
+│   └── test_stocksense.py    # 40 個離線測試（合成資料，不需網路）
+├── data/                     # 本機資料集與管線輸出
+├── start.sh / stop.sh        # 啟動／停止本機服務
+└── vercel.json               # 部署設定
 ```
 
 ## 資料來源

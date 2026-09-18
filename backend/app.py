@@ -1,121 +1,30 @@
-from flask import Flask, jsonify, request
-from flask_cors import CORS
+"""本機開發用的啟動入口。
 
-try:
-    from .fetcher import StockDataFetcher
-except ImportError:
-    # Backward compatible when running as script: python backend/app.py
-    from fetcher import StockDataFetcher
+實際的路由與商業邏輯都寫在 `api/index.py`（Vercel 也是用同一份），
+這裡只負責把它載入並啟動 Flask 伺服器，避免兩邊邏輯不一致。
 
-app = Flask(__name__)
-# 啟用跨域 (CORS)，確保鞏冠崙的 Frontend (Plotly/Dash) 可以跨 Port 順利呼叫 API
-CORS(app)
+用法：
+    python backend/app.py            # http://127.0.0.1:5000
+    PORT=8080 python backend/app.py
+"""
 
-# 實例化你的資料獲取器
-fetcher = StockDataFetcher()
+from __future__ import annotations
 
-VALID_PERIODS = {
-    "1d",
-    "5d",
-    "1mo",
-    "3mo",
-    "6mo",
-    "1y",
-    "2y",
-    "5y",
-    "10y",
-    "ytd",
-    "max",
-}
-VALID_INTERVALS = {
-    "1m",
-    "2m",
-    "5m",
-    "15m",
-    "30m",
-    "60m",
-    "90m",
-    "1h",
-    "1d",
-    "5d",
-    "1wk",
-    "1mo",
-    "3mo",
-}
+import os
+import sys
+from pathlib import Path
 
+ROOT_PATH = Path(__file__).resolve().parent.parent
+for path in (str(ROOT_PATH), str(ROOT_PATH / "api"), str(ROOT_PATH / "backend")):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
-@app.route("/api/stock_insight", methods=["GET"])
-def get_stock_insight():
-    """核心 API 端點：接收股票代碼，整合回傳股價走勢與情緒數據"""
-    # 獲取前端傳入的參數，例如 ?ticker=2330&period=1mo
-    ticker = request.args.get("ticker")
-    period = request.args.get("period", "1mo")
-    interval = request.args.get("interval", "1d")
+from index import app  # noqa: E402  (api/index.py)
 
-    if not ticker:
-        return jsonify({"status": "error", "message": "缺少必要的股票代碼參數 (ticker)"}), 400
-
-    if period not in VALID_PERIODS:
-        return jsonify({"status": "error", "message": f"不支援的 period: {period}"}), 400
-
-    if interval not in VALID_INTERVALS:
-        return jsonify({"status": "error", "message": f"不支援的 interval: {interval}"}), 400
-
-    # 1. 執行你負責的 yfinance 資料鏈路
-    prices = fetcher.get_historical_prices(
-        ticker, period=period, interval=interval
-    )
-
-    if prices is None:
-        return (
-            jsonify(
-                {
-                    "status": "error",
-                    "message": f"無法取得代碼 {ticker} 的股價資料，請檢查代碼是否正確",
-                }
-            ),
-            404,
-        )
-
-    # 2. 執行對接組員的情緒資料鏈路
-    news_sentiment = fetcher.get_news_sentiment_from_pipeline(ticker)
-
-    # 3. 後端整合：將兩者打包成結構化的 JSON 回傳
-    response_payload = {
-        "status": "success",
-        "ticker": ticker,
-        "request": {
-            "period": period,
-            "interval": interval,
-        },
-        "metrics": {
-            "total_fetched_prices": len(prices),
-            "total_fetched_news": len(news_sentiment),
-        },
-        "stock_price_trends": prices,  # 提供給前端 Plotly 繪製 K 線圖
-        "news_sentiment_list": news_sentiment,  # 提供給前端呈現 AI 標註列表
-    }
-
-    return jsonify(response_payload)
-
-
-@app.route("/api/health", methods=["GET"])
-def health_check():
-    """系統健康檢查端點"""
-    return jsonify({"status": "healthy", "service": "stock_predict_backend"})
-
-
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify(
-        {
-            "service": "stock_predict_backend",
-            "status": "running",
-            "endpoints": ["/api/health", "/api/stock_insight?ticker=2330&period=1mo&interval=1d"],
-        }
-    )
+__all__ = ["app"]
 
 
 if __name__ == "__main__":
-    # 啟動後端本地伺服器，預設 Port 5000
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    port = int(os.environ.get("PORT", "5000"))
+    print(f"StockSense API 啟動中 → http://127.0.0.1:{port}")
+    app.run(host="0.0.0.0", port=port, debug=os.environ.get("FLASK_DEBUG") == "1")
