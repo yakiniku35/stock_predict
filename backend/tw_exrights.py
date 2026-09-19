@@ -186,6 +186,7 @@ def _parse_list_rows(rows: list, fields: list[str]) -> list[dict]:
 
 
 def _build_record(picked: dict) -> dict | None:
+    """把抓出來的欄位組成一筆紀錄；沒有代號或日期就當這一列無效。"""
     code = str(picked.get("code") or "").strip()
     event_date = _normalize_date(picked.get("date"))
     if not code or not event_date:
@@ -215,6 +216,7 @@ def _build_record(picked: dict) -> dict | None:
 
 
 def _fetch(url: str, params: dict | None = None) -> list[dict]:
+    """打一次證交所的端點並解析回傳內容（連線或解析失敗由呼叫端處理）。"""
     response = requests.get(
         url,
         params=params,
@@ -277,6 +279,7 @@ def _load_in_background(key: str, years: int) -> None:
         _loading[key] = time.time()
 
     def worker() -> None:
+        """在背景抓完之後把結果寫進快取，順便清掉「抓取中」的標記。"""
         try:
             records = fetch_records(years=years)
         except Exception as exc:                 # pragma: no cover - 保險

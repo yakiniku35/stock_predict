@@ -699,6 +699,7 @@ def _scale_weights(weights: list[float | None]) -> float:
 
 
 def _parse_top_holdings(frame) -> list[dict]:
+    """把 yfinance 的前十大持股整理成前端用的結構（解析不了就回空清單）。"""
     rows = _holdings_rows(frame)
     if not rows:
         return []
@@ -777,6 +778,7 @@ RIGHTS_KIND_LABELS = {
 
 
 def _is_tw_symbol(symbol: str | None) -> bool:
+    """是不是台股代號（上市 .TW / 上櫃 .TWO）。"""
     return bool(symbol) and str(symbol).upper().endswith((".TW", ".TWO"))
 
 
@@ -829,6 +831,7 @@ def _rights_from_twse(record: dict) -> dict:
 
 
 def _twse_rights_label(kind: str, value: float | None) -> str:
+    """證交所紀錄的一句話說明，例如「除權息，權值+息值 14 元」。"""
     name = RIGHTS_KIND_LABELS.get(kind, "除權息")
     if value is None:
         return name
