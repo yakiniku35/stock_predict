@@ -720,11 +720,12 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(fetches, [])          # status 完全不抓
 
         self.assertEqual(cache.load_local(), [])   # 只讀本機，立刻回來
-        for _ in range(40):                        # 背景執行緒最終會跑完
+        for _ in range(60):                        # 背景執行緒最終會跑完
             if not cache.status()["loading"]:
                 break
             time.sleep(0.05)
-        self.assertLessEqual(len(fetches), 1)
+        self.assertFalse(cache.status()["loading"])
+        self.assertEqual(fetches, [1])             # 背景確實抓過一次（且只有一次）
 
     def test_directory_status_reports_category_not_raw_error(self):
         import directory_cache
@@ -733,6 +734,58 @@ class SecurityTests(unittest.TestCase):
             ConnectionError("proxy 127.0.0.1:9 refused")))
         cache.load()
         self.assertIn(cache.status()["error"], {"network_unavailable", "timeout", "source_error", "unavailable"})
+
+
+class ReviewFollowUpTests(unittest.TestCase):
+    """CodeRabbit review 指出的問題的回歸測試。"""
+
+    def test_boolean_flags_are_normalized(self):
+        """FALSE / " false " / OFF 都要算關閉（#4052xxxx：旗標未正規化）。"""
+        import index
+
+        for raw in ("0", "false", "FALSE", " false ", "No", "OFF", " 0 "):
+            with index.app.test_request_context(f"/api/stock_insight?include_news={raw}"):
+                self.assertFalse(index._flag("include_news"), raw)
+
+        for raw in ("1", "true", "TRUE", "yes", "anything"):
+            with index.app.test_request_context(f"/api/stock_insight?include_news={raw}"):
+                self.assertTrue(index._flag("include_news"), raw)
+
+        with index.app.test_request_context("/api/stock_insight"):
+            self.assertTrue(index._flag("include_news"))          # 預設開啟
+            self.assertFalse(index._flag("include_news", "0"))     # 預設可覆寫
+
+    def test_ninety_minute_period_is_clamped(self):
+        """90m 的上限必須是 _PERIOD_ORDER 裡有的值，否則完全不會被限制。"""
+        import fetcher as fetcher_module
+
+        self.assertIn(fetcher_module.MAX_PERIOD_BY_INTERVAL["90m"], fetcher_module._PERIOD_ORDER)
+        self.assertEqual(fetcher_module.clamp_period("1y", "90m"), "1mo")
+        self.assertEqual(fetcher_module.clamp_period("5y", "90m"), "1mo")
+        self.assertEqual(fetcher_module.clamp_period("5d", "90m"), "5d")
+
+    def test_us_exclusions_use_whole_words(self):
+        """排除權證 / 單位時不可誤殺 Brightcove（right）、United（unit）這類公司。"""
+        sample = "\n".join([
+            "Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares",
+            "BCOV|Brightcove Inc. - Common Stock|Q|N|N|100|N|N",
+            "UNTD|United Natural Foods Inc. - Common Stock|Q|N|N|100|N|N",
+            "RGHT|Wright Investors Service Holdings|Q|N|N|100|N|N",
+            "ABCW|Some SPAC Corp. - Warrant|S|N|N|100|N|N",
+            "ABCU|Some SPAC Corp. - Unit|S|N|N|100|N|N",
+            "ABCR|Some SPAC Corp. - Rights|S|N|N|100|N|N",
+        ])
+        codes = {entry["code"] for entry in us_directory.parse_symbol_file(sample, 0, 1, 6, 3)}
+        self.assertEqual(codes, {"BCOV", "UNTD", "RGHT"})
+
+    def test_holt_fitting_window_is_bounded(self):
+        """長序列不應讓 Holt 的格點搜尋變慢（只用最近 HOLT_FIT_WINDOW 期擬合）。"""
+        long_series = np.asarray(trending_series(n=3000, slope=0.05, noise=1.0), dtype=float)
+        short_series = long_series[-forecast_engine.HOLT_FIT_WINDOW:]
+        self.assertTrue(np.allclose(
+            forecast_engine._holt_damped(long_series, 7),
+            forecast_engine._holt_damped(short_series, 7),
+        ))
 
 
 class FetcherHelperTests(unittest.TestCase):

@@ -93,8 +93,10 @@ def fetch_from_twse() -> list[dict]:
             timeout=REQUEST_TIMEOUT,
         )
         response.raise_for_status()
-        # 證交所頁面是 MS950（Big5）編碼
-        response.encoding = response.apparent_encoding or "ms950"
+        # 證交所這個頁面固定以 MS950（Big5）輸出，但 HTTP 標頭沒有標示。
+        # 不用 apparent_encoding 偵測：那是統計猜測，中文字少時可能猜成其他編碼，
+        # 而且每次都要掃描整份文件。
+        response.encoding = "ms950"
         entries.extend(parse_isin_html(response.text, default_market))
     return entries
 

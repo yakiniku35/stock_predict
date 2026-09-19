@@ -34,8 +34,12 @@ _NAME_SUFFIX = re.compile(
 )
 _SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 
-# 這些關鍵字代表權證 / 特別股 / SPAC 單位，一般使用者不會查，直接排除
-_EXCLUDE_KEYWORDS = ("warrant", "% notes", "depositary share, each", " unit", "right")
+# 這些字樣代表權證 / 票據 / SPAC 單位 / 認股權，一般使用者不會查，直接排除。
+# 必須以「完整詞彙」比對：用子字串會誤殺 Brightcove（right）、United（unit）這類公司。
+_EXCLUDE_PATTERN = re.compile(
+    r"(?:\bwarrants?\b|\brights?\b|\bunits?\b|%\s*notes\b|depositary share, each)",
+    re.IGNORECASE,
+)
 
 
 def _clean_name(raw: str) -> str:
@@ -70,8 +74,7 @@ def parse_symbol_file(text: str, symbol_index: int, name_index: int,
             continue
 
         raw_name = parts[name_index].strip()
-        lowered = raw_name.lower()
-        if any(keyword in lowered for keyword in _EXCLUDE_KEYWORDS):
+        if _EXCLUDE_PATTERN.search(raw_name):
             continue
 
         is_etf = etf_index is not None and parts[etf_index].strip().upper() == "Y"

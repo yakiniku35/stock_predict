@@ -91,6 +91,12 @@ def _price_change_detail(prices: list[dict]) -> dict:
     }
 
 
+def _flag(name: str, default: str = "1") -> bool:
+    """讀取布林查詢參數；大小寫與前後空白都會先正規化（FALSE / " false " 都算 false）。"""
+    raw = (request.args.get(name, default) or default).strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 def _bad_request(message: str, status: int = 400):
     return jsonify({"status": "error", "message": message}), status
 
@@ -178,9 +184,9 @@ def get_stock_insight():
     ticker = request.args.get("ticker")
     period = request.args.get("period", "1y")
     interval = request.args.get("interval", "1d")
-    include_news = request.args.get("include_news", "1") not in {"0", "false", "no"}
-    include_actions = request.args.get("include_actions", "1") not in {"0", "false", "no"}
-    include_benchmark = request.args.get("include_benchmark", "1") not in {"0", "false", "no"}
+    include_news = _flag("include_news")
+    include_actions = _flag("include_actions")
+    include_benchmark = _flag("include_benchmark")
     model_type = (request.args.get("model_type") or "rnn").strip().lower()
 
     try:

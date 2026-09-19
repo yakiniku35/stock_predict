@@ -42,7 +42,8 @@ MAX_PERIOD_BY_INTERVAL = {
     "15m": "1mo",
     "30m": "1mo",
     "60m": "2y",
-    "90m": "60d",
+    # yfinance 對 90m 的上限是 60 天；這裡要用 _PERIOD_ORDER 裡有的值才會真的被限制
+    "90m": "1mo",
     "1h": "2y",
 }
 
