@@ -38,7 +38,8 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Backend/frontend service entry points are still evolving, but the data pipeline, sentiment training, inference, rollback, and monitoring scripts are runnable now.
+Start the web app and API with `./start.sh` (see [Web App (v2)](#web-app-v2)). The data pipeline,
+sentiment training, inference, rollback, and monitoring scripts below are runnable on their own too.
 
 ### News Scraper (Phase 1 runnable)
 

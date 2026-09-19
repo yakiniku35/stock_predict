@@ -335,7 +335,7 @@ class DividendAndSplitTests(unittest.TestCase):
         self.assertEqual(summary["latest"]["amount"], 2.5)
 
     def test_yield_is_computed_from_price(self):
-        pairs = [(pd.Timestamp.utcnow().strftime("%Y-%m-%d"), 4.0)]
+        pairs = [(pd.Timestamp.now("UTC").strftime("%Y-%m-%d"), 4.0)]
         payload = {"dividends": fetcher_module._summarize_dividends(self._series(pairs))}
         enriched = fetcher_module._with_yield(payload, 100.0)
         self.assertEqual(enriched["dividends"]["ttm_yield_pct"], 4.0)
@@ -513,7 +513,7 @@ class ApiTests(unittest.TestCase):
             lambda self, symbol, period, interval: cls.prices if symbol.endswith(".TW") or symbol == "SPY" else None
         )
         def fake_actions(self, symbol, latest_price=None):
-            recent = pd.Timestamp.utcnow().normalize().tz_localize(None)
+            recent = pd.Timestamp.now("UTC").normalize().tz_localize(None)
             series = pd.Series(
                 [2.0, 2.5],
                 index=pd.DatetimeIndex([recent - pd.Timedelta(days=400), recent - pd.Timedelta(days=30)]),

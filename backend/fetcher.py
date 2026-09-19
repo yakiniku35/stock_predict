@@ -535,7 +535,7 @@ def _summarize_dividends(series) -> dict | None:
         for item in sorted(yearly_map.values(), key=lambda item: item["year"])
     ][-15:]
 
-    today = pd.Timestamp.utcnow().tz_localize(None)
+    today = pd.Timestamp.now("UTC").tz_localize(None)
     ttm_total = round(sum(
         amount for date_text, amount in points
         if (today - pd.Timestamp(date_text)).days <= 365
