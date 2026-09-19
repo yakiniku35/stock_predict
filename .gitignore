@@ -52,3 +52,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# StockSense 本機服務 PID
+.stocksense.pid

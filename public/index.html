@@ -1,713 +1,385 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-Hant" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StockSense</title>
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+    <meta name="description" content="StockSense — 台股、美股與 ETF 的技術指標自動判讀、走勢預測與新聞情緒分析平台。">
+    <meta name="color-scheme" content="dark light">
+    <title>StockSense · 股票 / ETF 智慧分析</title>
 
-        :root {
-            --bg: #06080d;
-            --panel: rgba(15, 23, 42, 0.74);
-            --panel-strong: rgba(9, 16, 29, 0.92);
-            --line: rgba(148, 163, 184, 0.15);
-            --line-hot: rgba(45, 212, 191, 0.42);
-            --text: #f8fafc;
-            --muted: #94a3b8;
-            --soft: #cbd5e1;
-            --cyan: #22d3ee;
-            --blue: #3b82f6;
-            --mint: #2dd4bf;
-            --amber: #f59e0b;
-            --red: #f43f5e;
-            --green: #10b981;
-        }
-        
-        body {
-            font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-            background:
-                linear-gradient(135deg, rgba(34, 211, 238, 0.08) 0 1px, transparent 1px 16px),
-                radial-gradient(circle at 12% -8%, rgba(45, 212, 191, 0.22), transparent 28rem),
-                radial-gradient(circle at 92% 3%, rgba(245, 158, 11, 0.11), transparent 24rem),
-                linear-gradient(180deg, #0a1020 0%, var(--bg) 54%, #040508 100%);
-            color: var(--text);
-            line-height: 1.5;
-            overflow-x: hidden;
-            min-height: 100vh;
-        }
-        
-        .header {
-            background: rgba(6, 10, 18, 0.76);
-            border-bottom: 1px solid var(--line);
-            padding: 0.85rem 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            backdrop-filter: blur(22px);
-            position: sticky;
-            top: 0;
-            z-index: 20;
-        }
-        
-        .logo {
-            font-size: 1.5rem;
-            font-weight: 750;
-            letter-spacing: 0;
-            display: flex;
-            align-items: center;
-            gap: 0.65rem;
-        }
-
-        .logo::before {
-            content: '';
-            width: 0.7rem;
-            height: 1.6rem;
-            border-radius: 99px;
-            background: linear-gradient(180deg, var(--mint), var(--blue));
-            box-shadow: 0 0 26px rgba(34, 211, 238, 0.5);
-        }
-        
-        .container {
-            max-width: 1480px;
-            margin: 0 auto;
-            padding: 1.2rem 2rem 2rem;
-        }
-
-        .command-strip {
-            display: grid;
-            grid-template-columns: minmax(280px, 0.82fr) minmax(320px, 1fr);
-            gap: 0.9rem;
-            align-items: start;
-            margin-bottom: 1rem;
-        }
-        
-        .search-bar {
-            background:
-                linear-gradient(145deg, rgba(15, 23, 42, 0.86), rgba(2, 6, 23, 0.72)),
-                radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.18), transparent 10rem);
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            padding: 0.72rem;
-            display: grid;
-            grid-template-columns: 1.4fr 0.7fr 0.7fr auto;
-            gap: 0.72rem;
-            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.2);
-            backdrop-filter: blur(18px);
-        }
-        
-        input, select, button {
-            background: rgba(2, 6, 23, 0.72);
-            border: 1px solid rgba(148, 163, 184, 0.2);
-            color: var(--text);
-            padding: 0.75rem 1rem;
-            border-radius: 8px;
-            font-size: 1rem;
-            min-width: 0;
-        }
-        
-        input:focus, select:focus {
-            outline: none;
-            border-color: var(--cyan);
-            box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
-        }
-        
-        button {
-            background: linear-gradient(135deg, #2563eb, #0891b2 60%, #0f766e);
-            border: none;
-            cursor: pointer;
-            font-weight: 600;
-            transition: filter 0.2s, transform 0.2s;
-        }
-        
-        button:hover {
-            filter: brightness(1.08);
-            transform: translateY(-1px);
-        }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-        
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 0.82fr 1.18fr;
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-        }
-        
-        .metric-rail {
-            display: grid;
-            grid-template-columns: minmax(220px, 1.1fr) minmax(150px, 0.7fr) minmax(116px, 0.5fr);
-            align-items: stretch;
-            gap: 0.62rem;
-        }
-        
-        .card {
-            background:
-                linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(8, 16, 28, 0.86)),
-                radial-gradient(circle at 86% 12%, rgba(34, 211, 238, 0.14), transparent 8rem);
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            padding: 0.78rem 0.88rem;
-            min-height: 118px;
-            box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
-            position: relative;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-        }
-
-        .card::after {
-            content: '';
-            position: absolute;
-            inset: auto 0 0 0;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, var(--line-hot), transparent);
-            opacity: 0.55;
-        }
-
-        .metric-price {
-            min-height: 118px;
-        }
-
-        .metric-sentiment {
-            min-height: 118px;
-        }
-
-        .metric-rsi {
-            min-height: 118px;
-            background:
-                linear-gradient(145deg, rgba(28, 19, 8, 0.92), rgba(8, 16, 28, 0.86)),
-                radial-gradient(circle at 100% 0, rgba(245, 158, 11, 0.14), transparent 7rem);
-        }
-        
-        .card-title {
-            font-size: 0.64rem;
-            color: var(--muted);
-            margin-bottom: 0.28rem;
-            text-transform: uppercase;
-            letter-spacing: 0;
-        }
-        
-        .card-value {
-            font-size: clamp(1.35rem, 1.7vw, 1.7rem);
-            font-weight: 700;
-            margin-bottom: 0.2rem;
-            line-height: 1.05;
-            font-variant-numeric: tabular-nums;
-        }
-
-        .metric-price .card-value {
-            font-size: clamp(1.85rem, 2.4vw, 2.45rem);
-        }
-        
-        .card-change {
-            font-size: 0.78rem;
-            font-variant-numeric: tabular-nums;
-        }
-
-        .detail-list {
-            margin-top: 0.42rem;
-            font-size: 0.7rem;
-            color: var(--muted);
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.32rem 0.56rem;
-        }
-
-        .two-col {
-            display: grid;
-            grid-template-columns: 1.08fr 0.92fr;
-            gap: 1rem;
-            margin-bottom: 1rem;
-        }
-
-        .overview-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.55rem 0.85rem;
-            font-size: 0.85rem;
-            color: #d1d5db;
-        }
-
-        .overview-grid .label {
-            color: var(--muted);
-            margin-right: 0.25rem;
-        }
-
-        .training-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
-            color: var(--muted);
-            font-size: 0.85rem;
-        }
-
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 6px;
-            vertical-align: middle;
-        }
-
-        .dot.running { background: #f59e0b; }
-        .dot.done { background: #10b981; }
-
-        .horizon-tabs {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 0.75rem;
-        }
-
-        .horizon-tab {
-            border: 1px solid rgba(148, 163, 184, 0.18);
-            background: rgba(2, 6, 23, 0.64);
-            color: #cbd5e1;
-            border-radius: 6px;
-            padding: 0.35rem 0.7rem;
-            cursor: pointer;
-            font-size: 0.8rem;
-        }
-
-        .horizon-tab.active {
-            border-color: var(--cyan);
-            background: rgba(8, 47, 73, 0.88);
-            color: #7dd3fc;
-        }
-
-        .model-list {
-            display: grid;
-            gap: 0.5rem;
-        }
-
-        .model-row {
-            display: grid;
-            grid-template-columns: 1.2fr 0.8fr 0.6fr;
-            gap: 0.5rem;
-            padding: 0.58rem 0.65rem;
-            border-left: 3px solid rgba(148, 163, 184, 0.24);
-            background: rgba(2, 6, 23, 0.5);
-            border-radius: 0 7px 7px 0;
-            font-size: 0.82rem;
-        }
-
-        .model-row.best { border-left-color: #f59e0b; }
-
-        .model-name { color: #e2e8f0; font-weight: 600; }
-        .model-price { color: #93c5fd; text-align: right; font-variant-numeric: tabular-nums; }
-        .model-change { text-align: right; font-variant-numeric: tabular-nums; }
-        
-        .positive { color: var(--green); }
-        .negative { color: var(--red); }
-        
-        .chart-card {
-            background:
-                linear-gradient(145deg, rgba(15, 23, 42, 0.86), rgba(5, 10, 19, 0.82)),
-                radial-gradient(circle at 100% 0, rgba(59, 130, 246, 0.1), transparent 18rem);
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            padding: 1rem;
-            margin-bottom: 1rem;
-            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(14px);
-        }
-
-        .market-stage {
-            position: relative;
-            padding-top: 1.05rem;
-        }
-
-        .market-stage::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 1rem;
-            right: 18%;
-            height: 2px;
-            background: linear-gradient(90deg, var(--cyan), transparent);
-            opacity: 0.82;
-        }
-        
-        .chart-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 1rem;
-            padding-bottom: 0.75rem;
-            border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-            gap: 1rem;
-        }
-        
-        .chart-title {
-            font-size: 1.125rem;
-            font-weight: 600;
-        }
-
-        .chart-subtitle {
-            color: var(--muted);
-            font-size: 0.78rem;
-            margin-top: 0.2rem;
-        }
-
-        .chart-options {
-            display: grid;
-            gap: 0.5rem;
-            justify-items: end;
-        }
-
-        .option-group {
-            display: flex;
-            align-items: center;
-            gap: 0.45rem;
-            flex-wrap: wrap;
-            justify-content: flex-end;
-        }
-
-        .option-label {
-            color: var(--muted);
-            font-size: 0.72rem;
-            font-weight: 600;
-        }
-        
-        .tabs {
-            display: flex;
-            gap: 0.5rem;
-        }
-        
-        .tab {
-            padding: 0.5rem 1rem;
-            background: #07111f;
-            border: 1px solid #25364a;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.875rem;
-        }
-        
-        .tab.active {
-            background: var(--cyan);
-            border-color: var(--cyan);
-        }
-
-        .indicator-toggle {
-            min-height: 32px;
-            padding: 0.38rem 0.72rem;
-            background: rgba(2, 6, 23, 0.72);
-            border: 1px solid rgba(148, 163, 184, 0.2);
-            border-radius: 7px;
-            cursor: pointer;
-            font-size: 0.78rem;
-            color: #cbd5e1;
-            transition: all 0.2s;
-        }
-
-        .indicator-toggle.active {
-            background: #164e63;
-            border-color: var(--cyan);
-            color: #ecfeff;
-            box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.12) inset;
-        }
-
-        .subcharts-area {
-            margin-top: 0.9rem;
-            display: grid;
-            gap: 0.75rem;
-        }
-
-        .subchart-item {
-            border: 1px solid rgba(148, 163, 184, 0.14);
-            border-radius: 8px;
-            padding: 0.5rem;
-            background: rgba(2, 6, 23, 0.56);
-        }
-
-        .subchart-title {
-            font-size: 0.8rem;
-            color: var(--muted);
-            margin-bottom: 0.35rem;
-        }
-        
-        .news-item {
-            padding: 0.88rem 0.9rem;
-            border: 1px solid rgba(148, 163, 184, 0.12);
-            border-left: 3px solid rgba(34, 211, 238, 0.34);
-            border-radius: 8px;
-            margin-bottom: 0.55rem;
-            background: rgba(2, 6, 23, 0.42);
-            cursor: pointer;
-            transition: background 0.2s, transform 0.2s, border-color 0.2s;
-        }
-        
-        .news-item:hover {
-            background: rgba(15, 23, 42, 0.86);
-            border-color: rgba(34, 211, 238, 0.36);
-            transform: translateX(3px);
-        }
-        
-        .news-title {
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: #e5edf8;
-        }
-        
-        .news-meta {
-            font-size: 0.875rem;
-            color: var(--muted);
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-        }
-        
-        .badge {
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-        
-        .badge.pos { background: rgba(16, 185, 129, 0.12); color: var(--green); }
-        .badge.neu { background: rgba(148, 163, 184, 0.12); color: var(--muted); }
-        .badge.neg { background: rgba(244, 63, 94, 0.12); color: var(--red); }
-        
-        .loading {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.9);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-        }
-        
-        .loading.active { display: flex; }
-        
-        .spinner {
-            border: 3px solid #333;
-            border-top-color: #0ea5e9;
-            border-radius: 50%;
-            width: 48px;
-            height: 48px;
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        @media (max-width: 1040px) {
-            .command-strip {
-                grid-template-columns: 1fr;
+    <script>
+        // 在畫面繪製前就套用主題，避免重新整理時閃一下白畫面
+        (function () {
+            try {
+                var saved = localStorage.getItem('stocksense.theme') || 'auto';
+                var isDark = saved === 'dark' || (saved === 'auto' &&
+                    window.matchMedia('(prefers-color-scheme: dark)').matches);
+                document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+            } catch (error) {
+                document.documentElement.dataset.theme = 'dark';
             }
+        })();
+    </script>
 
-            .metric-rail {
-                max-width: 760px;
-            }
-
-            .grid-2,
-            .two-col {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        @media (max-width: 768px) {
-            html,
-            body {
-                width: 100%;
-                max-width: 100%;
-                overflow-x: hidden;
-            }
-
-            .header {
-                padding: 0.9rem 1rem;
-            }
-
-            .header > div:last-child {
-                display: none;
-            }
-
-            .container {
-                padding: 1rem;
-                width: 100%;
-                max-width: 100vw;
-                overflow-x: hidden;
-            }
-
-            .command-strip,
-            .metric-rail,
-            .search-bar,
-            .card,
-            .chart-card {
-                min-width: 0;
-                width: 100%;
-                max-width: 100%;
-            }
-
-            .grid-2, .metric-rail, .command-strip, .two-col { grid-template-columns: 1fr; }
-            .search-bar { grid-template-columns: 1fr; }
-            .metric-price,
-            .metric-sentiment,
-            .metric-rsi {
-                transform: none;
-            }
-            .search-bar input,
-            .search-bar select,
-            .search-bar button {
-                width: 100%;
-            }
-            .chart-header { display: grid; }
-            .chart-options { justify-items: stretch; }
-            .option-group {
-                display: grid;
-                grid-template-columns: repeat(3, minmax(0, 1fr));
-                justify-content: stretch;
-                gap: 0.45rem;
-            }
-            .option-label {
-                grid-column: 1 / -1;
-            }
-            .indicator-toggle {
-                width: 100%;
-                padding: 0.38rem 0.35rem;
-                font-size: 0.72rem;
-            }
-            #mainChart {
-                width: 100% !important;
-                height: 520px !important;
-            }
-        }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230ea5e9'/%3E%3Cpath d='M4 17l5-6 4 4 5-7 2 2.4' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+    <script src="app.js" defer></script>
 </head>
 <body>
-    <div class="header">
-        <div class="logo">StockSense</div>
-        <div style="font-size: 0.875rem; color: #888;">即時股票分析</div>
-    </div>
+    <div class="progress-bar" role="progressbar" aria-hidden="true"></div>
 
-    <div class="container">
-        <div class="command-strip">
-            <div class="search-bar">
-                <input type="text" id="ticker" placeholder="股票代碼 (例: 2330, AAPL)" value="2330">
-                <select id="period">
-                    <option value="1d">1天</option>
-                    <option value="5d">5天</option>
-                    <option value="1mo">1個月</option>
-                    <option value="3mo">3個月</option>
-                    <option value="6mo">6個月</option>
-                    <option value="1y" selected>1年</option>
-                </select>
-                <select id="interval">
-                    <option value="5m">5m</option>
-                    <option value="15m">15m</option>
-                    <option value="1h">1H</option>
-                    <option value="1d" selected>1D</option>
-                    <option value="1wk">1W</option>
-                    <option value="1mo">1M</option>
-                </select>
-                <button onclick="analyze()" id="btn">分析</button>
-            </div>
-
-            <div class="metric-rail">
-                <div class="card metric-price">
-                    <div class="card-title">最新價格與漲跌</div>
-                    <div class="card-value" id="price">--</div>
-                    <div class="card-change" id="priceChange">--</div>
-                    <div class="detail-list" id="priceDetail">--</div>
-                </div>
-                <div class="card metric-sentiment">
-                    <div class="card-title">新聞情緒</div>
-                    <div class="card-value" id="sentiment">--</div>
-                    <div class="card-change" id="sentimentText">--</div>
-                </div>
-                <div class="card metric-rsi">
-                    <div class="card-title">RSI</div>
-                    <div class="card-value" id="rsi">--</div>
-                    <div class="card-change" id="rsiText">--</div>
-                </div>
-            </div>
+    <header class="app-header">
+        <div class="brand">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <path d="M3 17l5-6 4 4 5-7 4 5"></path>
+                </svg>
+            </span>
+            <span class="brand-text">
+                <span class="brand-name">StockSense</span>
+                <span class="brand-tag">股票 · ETF 智慧分析</span>
+            </span>
         </div>
 
-        <div class="chart-card market-stage">
-            <div class="chart-header">
+        <div class="header-actions">
+            <span class="api-state" id="apiState" data-state="idle">
+                <span class="dot"></span><span id="apiStateText">待命中</span>
+            </span>
+
+            <div class="theme-switch" role="group" aria-label="主題模式">
+                <button type="button" data-theme-choice="auto" aria-pressed="false" title="跟隨系統">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="14" rx="2"></rect><path d="M8 21h8M12 18v3"></path></svg>
+                    <span class="theme-label">自動</span>
+                </button>
+                <button type="button" data-theme-choice="light" aria-pressed="false" title="淺色模式">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+                    <span class="theme-label">淺色</span>
+                </button>
+                <button type="button" data-theme-choice="dark" aria-pressed="false" title="深色模式">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>
+                    <span class="theme-label">深色</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- ============ 搜尋 ============ -->
+        <section class="panel search-panel" aria-label="查詢條件">
+            <div class="search-row">
+                <div class="combo">
+                    <label class="visually-hidden" for="tickerInput">股票或 ETF 代號</label>
+                    <div class="combo-input-wrap">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+                        <input class="combo-input" id="tickerInput" type="text" autocomplete="off"
+                               role="combobox" aria-expanded="false" aria-controls="comboList" aria-autocomplete="list"
+                               placeholder="輸入代號或名稱：2330、0050、00878、台積電、SPY…" value="0050">
+                        <kbd>/</kbd>
+                    </div>
+                    <div class="combo-list" id="comboList" role="listbox" data-open="false" aria-label="搜尋結果"></div>
+                </div>
+                <div class="search-actions">
+                    <button class="icon-btn" id="watchBtn" type="button" title="加入自選股" aria-pressed="false">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6.1.8-4.4 4.3 1.1 6.1L12 17l-5.4 2.8 1.1-6.1L3.3 9.4l6.1-.8z"></path></svg>
+                    </button>
+                    <button class="icon-btn" id="shareBtn" type="button" title="複製分享連結">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"></path><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"></path></svg>
+                    </button>
+                    <button class="btn" id="analyzeBtn" type="button">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M3 17l5-6 4 4 5-7 4 5"></path></svg>
+                        開始分析
+                    </button>
+                </div>
+            </div>
+
+            <div class="chip-row" id="watchlistRow" aria-label="自選股" hidden>
+                <span class="chip-label">自選</span>
+            </div>
+
+            <div class="chip-row" id="quickPicks" aria-label="熱門標的">
+                <span class="chip-label">熱門</span>
+            </div>
+
+            <div class="control-groups">
+                <div class="chip-row" id="periodGroup" role="group" aria-label="時間範圍">
+                    <span class="chip-label">範圍</span>
+                    <button class="chip" type="button" data-period="1mo" aria-pressed="false">1個月</button>
+                    <button class="chip" type="button" data-period="3mo" aria-pressed="false">3個月</button>
+                    <button class="chip" type="button" data-period="6mo" aria-pressed="false">6個月</button>
+                    <button class="chip" type="button" data-period="1y" aria-pressed="true">1年</button>
+                    <button class="chip" type="button" data-period="2y" aria-pressed="false">2年</button>
+                    <button class="chip" type="button" data-period="5y" aria-pressed="false">5年</button>
+                </div>
+                <div class="chip-row" id="intervalGroup" role="group" aria-label="K 線週期">
+                    <span class="chip-label">週期</span>
+                    <button class="chip" type="button" data-interval="15m" aria-pressed="false">15分</button>
+                    <button class="chip" type="button" data-interval="1h" aria-pressed="false">1小時</button>
+                    <button class="chip" type="button" data-interval="1d" aria-pressed="true">日線</button>
+                    <button class="chip" type="button" data-interval="1wk" aria-pressed="false">週線</button>
+                    <button class="chip" type="button" data-interval="1mo" aria-pressed="false">月線</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ 重點數字 ============ -->
+        <section class="metric-grid loadable" id="metricGrid" aria-label="重點數據">
+            <article class="metric">
+                <div class="metric-label">最新價格</div>
+                <div class="metric-value" id="metricPrice">--</div>
+                <div class="metric-sub" id="metricPriceChange">尚未查詢</div>
+                <div class="metric-foot" id="metricPriceDetail"></div>
+            </article>
+            <article class="metric">
+                <div class="metric-label">綜合判讀</div>
+                <div class="metric-value" id="metricVerdict">--</div>
+                <div class="metric-sub" id="metricVerdictSub">等待分析</div>
+                <div class="metric-foot" id="metricVerdictFoot"></div>
+            </article>
+            <article class="metric">
+                <div class="metric-label">模型預測</div>
+                <div class="metric-value" id="metricForecast">--</div>
+                <div class="metric-sub" id="metricForecastSub">等待分析</div>
+                <div class="metric-foot" id="metricForecastFoot"></div>
+            </article>
+            <article class="metric">
+                <div class="metric-label">新聞情緒</div>
+                <div class="metric-value" id="metricSentiment">--</div>
+                <div class="metric-sub" id="metricSentimentSub">等待分析</div>
+                <div class="metric-foot" id="metricSentimentFoot"></div>
+            </article>
+        </section>
+
+        <!-- ============ 市場判讀 ============ -->
+        <section class="panel loadable" aria-label="市場判讀">
+            <div class="panel-head">
                 <div>
-                    <div class="chart-title">歷史價格與指標 <span id="chartRangeLabel">(1Y · 1D)</span></div>
-                    <div class="chart-subtitle">預設僅顯示股票價格，指標可依需要開啟</div>
+                    <div class="panel-title">市場判讀 · 指標自動解讀</div>
+                    <div class="panel-sub">系統會自動計算每個技術指標的多空方向與強度，並整理成白話說明</div>
                 </div>
-                <div class="chart-options">
-                    <div class="option-group">
-                        <span class="option-label">價格圖選項</span>
-                        <button class="indicator-toggle" data-overlay="ma">均線</button>
-                        <button class="indicator-toggle" data-overlay="bb">布林通道</button>
-                        <button class="indicator-toggle" data-overlay="forecast">預測線</button>
+                <span class="tag" id="readUpdatedAt">--</span>
+            </div>
+
+            <div class="read-layout">
+                <div class="verdict-card">
+                    <div class="gauge">
+                        <svg viewBox="0 0 200 120" aria-hidden="true">
+                            <path d="M20 110 A80 80 0 0 1 180 110" fill="none" stroke="var(--grid)" stroke-width="14" stroke-linecap="round"></path>
+                            <path id="gaugeArc" d="M20 110 A80 80 0 0 1 180 110" fill="none" stroke="var(--accent)" stroke-width="14"
+                                  stroke-linecap="round" stroke-dasharray="0 999" style="transition: stroke-dasharray 600ms ease, stroke 300ms ease;"></path>
+                        </svg>
+                        <div class="gauge-value" id="gaugeValue">--</div>
                     </div>
-                    <div class="option-group">
-                        <span class="option-label">副指標</span>
-                        <button class="indicator-toggle" data-subchart="macd">MACD</button>
-                        <button class="indicator-toggle" data-subchart="rsi">RSI</button>
-                        <button class="indicator-toggle" data-subchart="kd">KD</button>
-                        <button class="indicator-toggle" data-subchart="bias">BIAS</button>
-                        <button class="indicator-toggle" data-subchart="ad">AD</button>
+                    <div class="gauge-caption">多空分數（-100 偏空 ~ +100 偏多）</div>
+                    <span class="verdict-badge" id="verdictBadge" data-stance="neutral">尚未分析</span>
+                    <div class="verdict-counts" id="verdictCounts"></div>
+                </div>
+
+                <div class="read-body">
+                    <div class="read-headline" id="readHeadline">輸入代號後，系統會自動判讀目前多空狀況</div>
+                    <p class="read-summary" id="readSummary">
+                        支援台股（2330、0050、00878）、上櫃（6488）與美股 / 美股 ETF（SPY、QQQ、NVDA）。
+                        查詢後這裡會出現一段完整的中文說明，告訴你「現在是什麼狀況」。
+                    </p>
+                    <div class="read-risk" id="readRisk" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4M12 17h.01"></path><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+                        <span id="readRiskText"></span>
+                    </div>
+                    <div class="signal-grid" id="signalGrid"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ 主圖 ============ -->
+        <section class="panel loadable" aria-label="價格走勢圖">
+            <div class="panel-head">
+                <div>
+                    <div class="panel-title" id="chartTitle">價格走勢</div>
+                    <div class="panel-sub" id="chartSubtitle">預設只顯示 K 線，指標可依需要開啟</div>
+                </div>
+                <div class="chart-toolbar">
+                    <div class="chip-row" role="group" aria-label="主圖疊加">
+                        <span class="chip-label">主圖</span>
+                        <button class="chip" type="button" data-overlay="ma" aria-pressed="false">均線</button>
+                        <button class="chip" type="button" data-overlay="bb" aria-pressed="false">布林通道</button>
+                        <button class="chip" type="button" data-overlay="volume" aria-pressed="false">成交量</button>
+                        <button class="chip" type="button" data-overlay="forecast" aria-pressed="false">預測區間</button>
+                    </div>
+                    <div class="chip-row" role="group" aria-label="副圖指標">
+                        <span class="chip-label">副圖</span>
+                        <button class="chip" type="button" id="exportCsvBtn" title="下載價格與指標 CSV">⬇ CSV</button>
+                        <button class="chip" type="button" data-subchart="macd" aria-pressed="false">MACD</button>
+                        <button class="chip" type="button" data-subchart="rsi" aria-pressed="false">RSI</button>
+                        <button class="chip" type="button" data-subchart="kd" aria-pressed="false">KD</button>
+                        <button class="chip" type="button" data-subchart="bias" aria-pressed="false">BIAS</button>
+                        <button class="chip" type="button" data-subchart="ad" aria-pressed="false">AD</button>
                     </div>
                 </div>
             </div>
-            <div id="mainChart" style="height: 620px;"></div>
-            <div id="subChartsArea" class="subcharts-area" style="display: none;"></div>
-        </div>
+            <div class="chart-body" id="mainChart" style="height: 560px;"></div>
+            <div class="subcharts" id="subCharts"></div>
+        </section>
 
-        <div class="two-col">
-            <div class="chart-card">
-                <div class="chart-header">
-                    <div class="chart-title">Company Overview</div>
-                </div>
-                <div class="overview-grid" id="companyOverview">
-                    <div><span class="label">載入中:</span> --</div>
-                </div>
-            </div>
-
-            <div class="chart-card">
-                <div class="chart-header">
-                    <div class="chart-title">ML Predictions</div>
-                </div>
-                <div class="training-row">
-                    <div id="trainingStatus"><span class="dot running"></span>Training...</div>
-                    <div id="forecastPrice">--</div>
-                </div>
-                <div class="horizon-tabs" id="horizonTabs">
-                    <button class="horizon-tab active" data-days="7">7 Days</button>
-                    <button class="horizon-tab" data-days="14">14 Days</button>
-                    <button class="horizon-tab" data-days="30">30 Days</button>
-                </div>
-                <div class="model-list" id="modelList"></div>
-            </div>
-        </div>
-
+        <!-- ============ 預測 + 概況 ============ -->
         <div class="grid-2">
-            <div class="chart-card">
-                <div class="chart-header">
-                    <div class="chart-title">技術指標熱力圖 (漲跌週期)</div>
+            <section class="panel loadable" aria-label="走勢預測">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title">走勢預測 · 回測加權整合</div>
+                        <div class="panel-sub">六個模型各自預測，再依滾動回測的誤差自動分配權重</div>
+                    </div>
+                    <div class="chip-row" id="horizonGroup" role="group" aria-label="預測天數">
+                        <button class="chip" type="button" data-horizon="5" aria-pressed="false">5日</button>
+                        <button class="chip" type="button" data-horizon="7" aria-pressed="true">7日</button>
+                        <button class="chip" type="button" data-horizon="14" aria-pressed="false">14日</button>
+                        <button class="chip" type="button" data-horizon="30" aria-pressed="false">30日</button>
+                    </div>
                 </div>
-                <div id="indChart" style="height: 300px;"></div>
-            </div>
-            <div class="chart-card">
-                <div class="chart-header">
-                    <div class="chart-title">新聞動態</div>
+
+                <div class="forecast-hero">
+                    <div>
+                        <div class="metric-label">整合預測價（<span id="forecastHorizonLabel">7</span> 個交易日後）</div>
+                        <div class="forecast-price" id="forecastPrice">--</div>
+                        <div class="metric-sub" id="forecastChange">等待分析</div>
+                    </div>
+                    <div class="forecast-meta" id="forecastMeta"></div>
                 </div>
-                <div id="newsList" style="max-height: 520px; overflow-y: auto;"></div>
+
+                <div style="overflow-x: auto;">
+                    <table class="model-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">模型</th>
+                                <th scope="col">預測價</th>
+                                <th scope="col">漲跌</th>
+                                <th scope="col">回測誤差</th>
+                                <th scope="col">方向準確</th>
+                                <th scope="col">權重</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modelTableBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel loadable" aria-label="標的概況">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title" id="overviewTitle">標的概況</div>
+                        <div class="panel-sub" id="overviewSubtitle">股票看基本面，ETF 看規模與費用率</div>
+                    </div>
+                    <span class="tag" id="overviewKind">--</span>
+                </div>
+                <div id="overviewSections"></div>
+                <div class="company-desc" id="companyDesc"></div>
+                <button class="desc-toggle" id="descToggle" type="button" hidden>顯示完整介紹</button>
+            </section>
+        </div>
+
+        <!-- ============ 配息 / 分割 + 額外資料 ============ -->
+        <div class="grid-2">
+            <section class="panel loadable" aria-label="配息與分割">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title">配息與分割紀錄</div>
+                        <div class="panel-sub" id="dividendSubtitle">歷年現金股利與股票分割（資料來自 Yahoo Finance）</div>
+                    </div>
+                    <span class="tag" id="dividendFrequency">--</span>
+                </div>
+
+                <div class="stat-chips" id="dividendStats"></div>
+                <div id="dividendChart" class="chart-body" style="height: 210px;"></div>
+
+                <div class="table-tabs" id="actionTabs" role="tablist">
+                    <button class="chip" type="button" role="tab" data-action-tab="dividends" aria-pressed="true">配息明細</button>
+                    <button class="chip" type="button" role="tab" data-action-tab="splits" aria-pressed="false">分割紀錄</button>
+                </div>
+                <div id="actionTableWrap" class="table-wrap"></div>
+            </section>
+
+            <section class="panel loadable" aria-label="延伸資料">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title" id="extraTitle">延伸資料</div>
+                        <div class="panel-sub" id="extraSubtitle">ETF 看持股與產業分布，個股看評等與重要日期</div>
+                    </div>
+                </div>
+                <div id="extraBody"></div>
+            </section>
+        </div>
+
+        <!-- ============ 風險 / 定期定額 ============ -->
+        <div class="grid-2">
+            <section class="panel loadable" aria-label="風險與報酬">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title">風險與報酬</div>
+                        <div class="panel-sub" id="riskSubtitle">以目前選擇的時間範圍計算</div>
+                    </div>
+                    <span class="tag" id="riskBeta">--</span>
+                </div>
+                <div class="stat-chips" id="riskStats"></div>
+                <p class="read-summary" id="riskNote"></p>
+            </section>
+
+            <section class="panel loadable" aria-label="定期定額試算">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title">定期定額試算</div>
+                        <div class="panel-sub" id="dcaSubtitle">每月第一個交易日固定投入，配息自動再投入</div>
+                    </div>
+                    <div class="amount-control">
+                        <label class="visually-hidden" for="dcaAmount">每月投入金額</label>
+                        <button class="icon-btn" type="button" data-dca-step="-1000" title="減少 1000">−</button>
+                        <input type="number" id="dcaAmount" value="5000" min="1000" step="1000" inputmode="numeric">
+                        <button class="icon-btn" type="button" data-dca-step="1000" title="增加 1000">＋</button>
+                    </div>
+                </div>
+                <div class="stat-chips" id="dcaStats"></div>
+                <div id="dcaChart" class="chart-body" style="height: 190px;"></div>
+                <p class="read-risk" id="dcaNote"></p>
+            </section>
+        </div>
+
+        <!-- ============ 多標的比較 ============ -->
+        <section class="panel loadable" aria-label="多標的比較">
+            <div class="panel-head">
+                <div>
+                    <div class="panel-title">多標的比較</div>
+                    <div class="panel-sub">同一個起點（=100）比較報酬率，最多四檔</div>
+                </div>
+                <div class="compare-input">
+                    <label class="visually-hidden" for="compareInput">加入比較標的</label>
+                    <input type="text" id="compareInput" placeholder="輸入代號後按 Enter，例如 006208" autocomplete="off">
+                    <button class="btn" id="compareBtn" type="button">比較</button>
+                </div>
             </div>
-        </div>
-    </div>
+            <div class="chip-row" id="compareChips" aria-label="比較清單"></div>
+            <div id="compareChart" class="chart-body" style="height: 320px;"></div>
+            <div class="table-wrap" id="compareTableWrap" style="max-height:none;"></div>
+        </section>
 
-    <div class="loading" id="loading">
-        <div style="text-align: center;">
-            <div class="spinner"></div>
-            <div style="margin-top: 1rem;">分析中...</div>
-        </div>
-    </div>
+        <!-- ============ 新聞 ============ -->
+        <section class="panel loadable" aria-label="相關新聞">
+            <div class="panel-head">
+                <div>
+                    <div class="panel-title">相關新聞與情緒</div>
+                    <div class="panel-sub" id="newsSubtitle">由 RNN 情緒模型搭配財經詞典校準</div>
+                </div>
+                <span class="tag" id="newsModelTag">--</span>
+            </div>
+            <div class="news-list" id="newsList"></div>
+        </section>
+    </main>
 
-    <script src="app.js"></script>
+    <footer class="app-footer">
+        <p id="disclaimer">本站所有數據與判讀皆由程式自動計算，僅供學習與參考，不構成投資建議。</p>
+        <p style="margin-top:0.4rem;">資料來源：Yahoo Finance（yfinance）、Google News RSS</p>
+    </footer>
+
+    <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 </body>
 </html>

@@ -1,54 +1,55 @@
 #!/bin/bash
-
-echo "🚀 啟動 StockSense..."
-echo ""
+# StockSense 啟動腳本：一個指令就把前端與 API 一起跑起來
+set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PORT="${PORT:-5000}"
+PID_FILE="$ROOT_DIR/.stocksense.pid"
+LOG_FILE="${LOG_FILE:-/tmp/stocksense_api.log}"
+
 PYTHON_BIN="python3"
 if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
     PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 fi
 
-# 檢查是否已有服務在運行
-if lsof -Pi :8501 -sTCP:LISTEN -t >/dev/null ; then
-    echo "✅ 新聞服務已在運行 (Port 8501)"
+echo "🚀 啟動 StockSense..."
+
+# 只認自己寫下的 PID，不去掃整個連接埠（避免誤殺別人的服務）
+if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    echo "✅ 服務已在運行 (PID $(cat "$PID_FILE"), Port $PORT)"
 else
-    echo "⏳ 啟動新聞服務..."
-    cd frontend
-    nohup "$PYTHON_BIN" dashboard.py > /tmp/stocksense_news.log 2>&1 &
-    cd ..
+    rm -f "$PID_FILE"
+    cd "$ROOT_DIR"
+    PORT="$PORT" nohup "$PYTHON_BIN" backend/app.py > "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
     sleep 3
-    echo "✅ 新聞服務已啟動"
+    if kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+        echo "✅ 服務已啟動 (PID $(cat "$PID_FILE"))"
+    else
+        rm -f "$PID_FILE"
+        echo "❌ 啟動失敗，請查看 $LOG_FILE" >&2
+        tail -n 20 "$LOG_FILE" >&2 || true
+        exit 1
+    fi
 fi
 
-if lsof -Pi :8000 -sTCP:LISTEN -t >/dev/null ; then
-    echo "✅ 前端服務已在運行 (Port 8000)"
-else
-    echo "⏳ 啟動前端服務..."
-    cd public
-    nohup "$PYTHON_BIN" -m http.server 8000 > /tmp/stocksense_web.log 2>&1 &
-    cd ..
-    sleep 2
-    echo "✅ 前端服務已啟動"
-fi
+cat <<INFO
 
-echo ""
-echo "═══════════════════════════════════════════════════"
-echo "🎉 StockSense 已啟動！"
-echo "═══════════════════════════════════════════════════"
-echo ""
-echo "📱 訪問方式："
-echo ""
-echo "  專業儀表板:  http://localhost:8000/dashboard.html"
-echo "  原生服務:    http://127.0.0.1:8501"
-echo ""
-echo "📊 API 端點："
-echo ""
-echo "  新聞分析:    http://127.0.0.1:8501/api/search?ticker=2330"
-echo "  股價查詢:    https://stock-predict-azure.vercel.app/api/stock_insight?ticker=2330"
-echo ""
-echo "🛑 停止服務："
-echo ""
-echo "  執行: ./stop.sh"
-echo ""
-echo "═══════════════════════════════════════════════════"
+═══════════════════════════════════════════════════
+🎉 StockSense 已啟動
+═══════════════════════════════════════════════════
+
+📱 網頁介面：  http://127.0.0.1:$PORT/
+
+📊 API 端點：
+   健康檢查：  http://127.0.0.1:$PORT/api/health
+   代號搜尋：  http://127.0.0.1:$PORT/api/symbol_search?q=0050
+   完整分析：  http://127.0.0.1:$PORT/api/stock_insight?ticker=0050&period=1y&interval=1d
+   多檔比較：  http://127.0.0.1:$PORT/api/compare?tickers=0050,006208,00878
+   新聞情緒：  http://127.0.0.1:$PORT/api/search?ticker=2330
+
+🧪 執行測試：  $PYTHON_BIN tests/test_stocksense.py
+🛑 停止服務：  ./stop.sh
+📄 執行記錄：  $LOG_FILE
+
+INFO

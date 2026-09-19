@@ -3,7 +3,13 @@
   "builds": [
     {
       "src": "api/index.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "includeFiles": [
+          "backend/**",
+          "models/**"
+        ]
+      }
     },
     {
       "src": "public/**",
@@ -14,6 +20,10 @@
     {
       "src": "/api/(.*)",
       "dest": "api/index.py"
+    },
+    {
+      "src": "/",
+      "dest": "public/index.html"
     },
     {
       "src": "/(.*)",

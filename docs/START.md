@@ -1,216 +1,100 @@
-# 🚀 StockSense 完整啟動指南
+# 🚀 StockSense 啟動指南
 
-## ✅ 系統已經可以真正抓取新聞並分析！
+> v2 之後前端與 API 合併成同一個服務，只要一個指令就能跑起來。
 
-我已經測試確認系統可以正常運作：
-- ✅ 成功抓取 10 筆台積電即時新聞
-- ✅ 情緒分析正常（正面 1、中立 6、負面 3）
-- ✅ 資料已儲存在 data/ 目錄
-
-## 📋 完整啟動步驟
-
-### 1️⃣ 啟動新聞服務（必須）
+## 1️⃣ 安裝環境（第一次才需要）
 
 ```bash
-# 終端機 1
-cd /Users/peterchiu/stock_predict/frontend
-python3 dashboard.py
+cd stock_predict
+python3 -m venv .venv
+source .venv/bin/activate          # Windows 用 .venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-看到這個訊息表示成功：
-```
-Open http://127.0.0.1:8501
-```
-
-### 2️⃣ 啟動前端服務
+## 2️⃣ 啟動
 
 ```bash
-# 終端機 2
-cd /Users/peterchiu/stock_predict/public
-python3 -m http.server 8000
+./start.sh
 ```
 
-### 3️⃣ 開啟瀏覽器
-
-選擇其中一個：
-
-**選項 A - 專業儀表板（推薦）**
-```
-http://localhost:8000/dashboard.html
-```
-
-**選項 B - 本地原生服務**
-```
-http://127.0.0.1:8501
-```
-
-## 🧪 測試步驟
-
-### 使用專業儀表板
-
-1. 訪問 `http://localhost:8000/dashboard.html`
-2. 輸入股票代碼（例如：2330）
-3. 選擇時間範圍（例如：近一個月）
-4. 設定新聞數量（例如：50）
-5. 點擊「分析」按鈕
-6. 查看結果：
-   - 統計卡片（價格、新聞數、情緒）
-   - Plotly K線圖
-   - 新聞動態列表
-   - 情緒圓餅圖
-
-## 📊 實際測試結果
-
-剛才的測試成功抓取：
-```json
-{
-  "summary": {
-    "records": 10,
-    "score_mean": -0.2,
-    "positive_ratio": 0.1,
-    "neutral_ratio": 0.6,
-    "negative_ratio": 0.3
-  },
-  "news": [
-    {
-      "headline": "台股狂瀉2000點！台積電跳水2330元...",
-      "sentiment_label": "negative",
-      "sentiment_score": -1.0
-    },
-    ...
-  ]
-}
-```
-
-## 🎯 支援的股票代碼
-
-### 台股
-- 2330 (台積電)
-- 2317 (鴻海)
-- 2454 (聯發科)
-- 2412 (中華電)
-
-### 美股
-- AAPL (蘋果)
-- TSLA (特斯拉)
-- MSFT (微軟)
-- GOOGL (Google)
-
-## 📁 資料儲存位置
-
-所有抓取的資料都會儲存在：
+看到下面訊息就代表成功：
 
 ```
-data/
-├── raw/                          # 原始新聞
-│   ├── news_latest.jsonl        # 最新抓取的新聞
-│   └── news_latest_summary.json # 摘要資訊
-├── normalized/                   # 情緒分析後
-│   ├── news_with_sentiment.jsonl
-│   └── news_with_sentiment_summary.json
-└── features/                     # 時間序列特徵
-    └── sentiment_features_hour.csv
+📱 網頁介面：  http://127.0.0.1:5000/
 ```
 
-## 🔧 API 端點說明
+打開瀏覽器進入 <http://127.0.0.1:5000/> 即可使用。
 
-### 1. 新聞搜尋與情緒分析
-```
-GET http://127.0.0.1:8501/api/search
+> 想換連接埠：`PORT=8080 ./start.sh`
+> 想看錯誤訊息：`tail -f /tmp/stocksense_api.log`
 
-參數：
-  - ticker: 股票代碼（必填）
-  - query: 搜尋關鍵字（可選）
-  - max_articles: 最大新聞數（預設 100）
-
-範例：
-http://127.0.0.1:8501/api/search?ticker=2330&query=台積電&max_articles=50
-```
-
-### 2. 股價查詢
-```
-GET https://stock-predict-azure.vercel.app/api/stock_insight
-
-參數：
-  - ticker: 股票代碼（必填）
-  - period: 時間範圍（預設 1mo）
-  - interval: 時間間隔（預設 1d）
-
-範例：
-https://stock-predict-azure.vercel.app/api/stock_insight?ticker=2330&period=1mo&interval=1d
-```
-
-## 🐛 疑難排解
-
-### Q: 新聞無法載入？
-
-A: 確認新聞服務已啟動：
-```bash
-# 檢查服務
-curl http://127.0.0.1:8501/api/search?ticker=2330&query=台積電&max_articles=10
-
-# 重啟服務
-cd frontend
-python3 dashboard.py
-```
-
-### Q: 顯示 CORS 錯誤？
-
-A: 確保兩個服務都在運行：
-1. 新聞服務：http://127.0.0.1:8501
-2. 前端服務：http://localhost:8000
-
-### Q: 情緒分析不準確？
-
-A: 目前使用 Lexicon 詞彙分析，是輕量化版本。特點：
-- 速度快
-- 無需深度學習模型
-- 基於中文情緒詞典
-
-## 💡 使用技巧
-
-### 1. 批次測試多檔股票
+停止服務：
 
 ```bash
-# 使用 curl 測試
-curl "http://127.0.0.1:8501/api/search?ticker=2330&query=台積電&max_articles=30"
-curl "http://127.0.0.1:8501/api/search?ticker=2317&query=鴻海&max_articles=30"
+./stop.sh
 ```
 
-### 2. 定時抓取
+## 3️⃣ 怎麼用
 
-可以使用 cron 或排程任務定時抓取：
+1. 在搜尋框輸入代號或名稱，例如：
+   - 台股個股：`2330`、`2454`、`2882`
+   - 台股 ETF：`0050`、`0056`、`00878`、`006208`
+   - 上櫃股票：`6488`、`5274`
+   - 美股／美股 ETF：`AAPL`、`NVDA`、`SPY`、`QQQ`
+   - 中文名稱：`台積電`、`高股息`、`元大台灣50`
+   （輸入時下方會出現建議清單，用 ↑ ↓ 選、Enter 確認；按 `/` 可快速跳到搜尋框）
+2. 選擇「範圍」與「週期」，按「開始分析」。
+3. 由上往下看結果：
+   - **重點數字**：最新價格、綜合判讀、模型預測、新聞情緒
+   - **市場判讀**：多空分數儀表 + 一段中文說明 + 每個指標的判讀卡
+   - **走勢圖**：可開關均線、布林通道、成交量、預測區間，以及 MACD / RSI / KD / BIAS / AD 副圖
+   - **走勢預測**：各模型的預測價、回測誤差、方向準確率與權重
+   - **基本資料**：分成「基本 / 評價 / 獲利 / 配息」幾組；ETF 則是規模、費用率、追蹤績效
+   - **配息與分割**：歷年配息長條圖、每次除息明細、分割紀錄、近 12 個月配息與現金殖利率
+   - **延伸資料**：ETF 顯示前十大持股與產業分布；個股顯示分析師評等、目標價與重要日期
+   - **風險與報酬**：年化報酬、波動、最大回撤、夏普值、與大盤的 Beta
+   - **定期定額試算**：輸入每月投入金額，立刻看到累計投入、目前價值與年化報酬
+   - **多標的比較**：最多四檔以同一起點比較報酬率（例如 0050 vs 006208 vs 00878）
+   - **相關新聞**：每則新聞附上情緒標籤與分數
+4. 右上角可切換 **自動 / 淺色 / 深色** 主題，選擇會被記住。
+5. 其他小功能：
+   - ⭐ 星號可把標的加入自選（存在瀏覽器），搜尋列下方一鍵切換
+   - 🔗 可複製分享連結（網址會帶代號與區間）
+   - ⬇ 圖表工具列的「CSV」可下載目前區間的價格與指標
+
+## 4️⃣ 驗證與除錯
+
 ```bash
-# 每小時抓取一次
-0 * * * * cd /Users/peterchiu/stock_predict && curl "http://127.0.0.1:8501/api/search?ticker=2330&max_articles=100"
+python tests/test_stocksense.py    # 94 個離線測試（不需網路）
+./test_api.sh                      # 需先 ./start.sh
+curl "http://127.0.0.1:5000/api/health"
 ```
 
-### 3. 查看歷史資料
+常見狀況：
+
+| 狀況 | 原因與處理 |
+| --- | --- |
+| 顯示「查無價格資料」 | 代號輸入錯誤，或該標的在 Yahoo Finance 沒有資料；畫面會提示相近的代號 |
+| 預測區塊顯示資料不足 | 歷史資料少於 30 筆，請把「範圍」改成 1 年以上 |
+| 選 15 分 / 1 小時線時範圍被改掉 | yfinance 對分鐘線有天數限制，系統會自動縮短範圍並提示 |
+| 新聞情緒顯示「備援模式」 | RNN 權重載入失敗，已自動改用詞典模型，功能仍可使用 |
+| 中文名稱查不到 | 第一次使用會自動抓證交所清單（約 3,000 檔），若當下無網路會退回內建字典；請改輸入代號，或從下拉建議點選 |
+| 英文公司名查不到 | 美股清單來自 NASDAQ Trader（約 11,000 檔），同樣是第一次使用時抓取；可先執行 `python scripts/update_symbol_directory.py` 產生離線快照 |
+| 定期定額顯示資料不足 | 需要至少兩個月的資料，請把範圍改成 1 年以上 |
+| 配息區塊顯示「沒有配息紀錄」 | 該標的不配息，或 Yahoo Finance 沒有提供（剛上市的 ETF 常見） |
+
+## 5️⃣ 部署到 Vercel
 
 ```bash
-# 查看原始新聞
-cat data/raw/news_latest.jsonl | jq
-
-# 查看情緒分析結果
-cat data/normalized/news_with_sentiment.jsonl | jq
-
-# 查看時間序列特徵
-cat data/features/sentiment_features_hour.csv
+npm i -g vercel
+vercel --prod
 ```
 
-## 🎉 成功！
+`vercel.json` 已設定好：`/api/*` 交給 `api/index.py`，其餘走 `public/` 靜態檔。
 
-現在你可以：
-1. ✅ 即時抓取新聞
-2. ✅ 自動情緒分析
-3. ✅ 視覺化展示
-4. ✅ 整合股價資料
-5. ✅ 專業儀表板
+部署前建議先產生台股名稱快照，這樣線上環境不必連證交所也能用中文查詢：
 
----
-
-📖 詳細指南：docs/archive/DASHBOARD-GUIDE.md
-🔧 部署說明：docs/archive/DEPLOYMENT-SUCCESS.md
-🐛 問題回報：開 issue
-
-Made with ❤️ by StockSense
+```bash
+python scripts/update_symbol_directory.py   # 產生台股 + 美股名稱快照
+git add backend/data/*.json && git commit -m "更新名稱對照表"
+```

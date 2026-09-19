@@ -8,10 +8,12 @@ A stock trend prediction project for Taiwan and U.S. markets. The goal is to com
 
 ## Features
 
+- Analyze **both stocks and ETFs** across Taiwan (listed + OTC) and U.S. markets, with symbol search in Chinese or English.
 - Fetch historical price data and financial indicators with [yfinance](https://github.com/ranaroussi/yfinance).
 - Collect auxiliary market context, such as news and social discussions, through crawlers.
 - Analyze sentiment signals with both lexicon baseline and RNN/LSTM models (switchable by runtime flags).
-- Predict directional price trends from price, indicator, and sentiment features.
+- Read every technical indicator automatically and turn it into a plain Traditional Chinese explanation of the current market state.
+- Predict price trends with a backtest-weighted ensemble of six time-series models (with confidence band).
 - Present interactive charts and analysis results with [Plotly](https://github.com/plotly/plotly.py).
 
 ## Quick Start
@@ -36,7 +38,8 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Backend/frontend service entry points are still evolving, but the data pipeline, sentiment training, inference, rollback, and monitoring scripts are runnable now.
+Start the web app and API with `./start.sh` (see [Web App (v2)](#web-app-v2)). The data pipeline,
+sentiment training, inference, rollback, and monitoring scripts below are runnable on their own too.
 
 ### News Scraper (Phase 1 runnable)
 
@@ -72,20 +75,78 @@ Output schema (one JSON object per line):
 - `language`, `ticker`
 - `sentiment_score`, `sentiment_label` (filled in Phase 2)
 
-## Stock Insight API Enhancements
+## Web App (v2)
 
-`/api/stock_insight` now includes:
+Run everything with one command:
 
-- `company_overview`: company fundamentals and profile (sector, industry, valuation, margins, dividend yield, etc.).
-- `technical_indicators`: `SMA(5/20/60/120/240)`, `BB`, `MACD`, `KD`, `RSI`, `BIAS`, `AD`.
-- `price_change_detail`: intraday / one-day / one-week / one-month price changes.
-- `model_forecasts`: multi-model forecasts for `7/14/30` day horizons with `Ensemble`, `LSTM`, `Prophet-Lite`, `GRU`, `CNN-LSTM`, `ARIMA`, `Exponential MA`, `Linear Regression`.
-
-You can set forecast horizon by query parameter:
-
-```text
-/api/stock_insight?ticker=2330&period=1y&interval=1d&forecast_horizon=14
+```bash
+./start.sh          # http://127.0.0.1:5000
+python tests/test_stocksense.py   # 94 offline tests, no network needed
 ```
+
+Highlights:
+
+- **Stocks and ETFs**: Taiwan listed/OTC codes are resolved automatically (`0050`, `00878`, `006208` -> `.TW`, `6488` -> `.TWO`), plus US tickers and ETFs (`SPY`, `QQQ`, `NVDA`). Chinese names work too (`台積電`, `高股息`).
+- **Dark / light / auto theme**: switchable in the header, persisted in `localStorage`; charts re-theme with the UI.
+- **Auto signal reading**: 11 indicators (trend, RSI, MACD, KD, Bollinger, BIAS, volume/OBV, 52w position, volatility, news sentiment, model forecast) are scored into a -100..+100 verdict with a generated Traditional Chinese explanation.
+- **Backtested forecasting**: six real time-series models, weighted by walk-forward backtest error instead of hard-coded constants.
+
+### 中文名稱查詢
+
+輸入中文（例如「台積電」「長榮航」「高股息」）也能找到標的：
+
+1. `backend/symbol_catalog.py` bundles ~125 popular symbols with Chinese and English names.
+2. `backend/tw_directory.py` pulls the full TWSE/TPEx listing (~3,000 stocks and ETFs) from the
+   exchange ISIN page.
+3. `backend/us_directory.py` pulls the full U.S. listing (~11,000 stocks and ETFs, with an ETF flag)
+   from the NASDAQ Trader symbol files, so English company names such as "Palantir" resolve too.
+4. Both are cached under `data/runtime/` for 7 days and degrade to the bundled catalog offline.
+5. Optional offline snapshot for deployment: `python scripts/update_symbol_directory.py`.
+
+### Dividends and splits
+
+`/api/stock_insight` also returns `corporate_actions`:
+
+- `dividends.yearly`: dividend total and payment count per year (drives the bar chart).
+- `dividends.records`: every ex-dividend date and amount.
+- `dividends.ttm_total` / `ttm_yield_pct` / `average_3y`: trailing 12-month dividend and yield.
+- `dividends.frequency`: monthly / quarterly / semi-annual / annual, detected from payment counts.
+- `dividends.consecutive_years`: consecutive years with a dividend.
+- `splits.records`: split and reverse-split history with readable labels.
+- `fund_profile` (ETF only): top 10 holdings and sector weightings.
+
+### Risk, DCA and comparison
+
+- `risk_metrics` (in `/api/stock_insight`): total and annualized return, annualized volatility, max drawdown
+  with its peak/trough dates, Sharpe, Sortino, monthly win rate, plus beta and correlation against the local
+  benchmark (`^TWII` for Taiwan, `^GSPC` for the U.S.).
+- `dca` (in `/api/stock_insight`): monthly dollar-cost-averaging simulation with dividend reinvestment,
+  computed for a unit contribution so the UI can rescale instantly; includes a lump-sum comparison.
+- `GET /api/compare?tickers=0050,006208,00878&period=1y`: up to four symbols rebased to 100 with their
+  risk/return metrics side by side.
+
+The front end also has a watchlist (stored in the browser), shareable URLs
+(`?ticker=&period=&interval=&horizon=`) and CSV export of prices and indicators.
+
+### API endpoints
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/health` | Service and feature flags |
+| `GET /api/symbol_search?q=00878` | Offline symbol autocomplete (stocks + ETFs) |
+| `GET /api/stock_insight?ticker=0050&period=1y&interval=1d&forecast_horizon=7` | Prices, indicators, forecast, auto reading, news |
+| `GET /api/search?ticker=2330` | News sentiment only |
+
+`/api/stock_insight` returns:
+
+- `symbol`: resolved yfinance symbol, market, instrument kind (`stock` / `etf` / `index`).
+- `company_overview`: stock fundamentals, or ETF fields (expense ratio, total assets, NAV, trailing returns).
+- `technical_indicators`: `SMA(5/20/60/120/240)`, `EMA`, `BB`, `MACD`, `KD`, `RSI`, `BIAS`, `AD`, `ATR`, `OBV`.
+- `price_change_detail`: intraday / 1D / 1W / 1M / 3M changes.
+- `forecast`: `holt_damped`, `theta`, `ridge_ar`, `knn_analog`, `drift`, `ema_momentum` plus a weighted ensemble with an 80% confidence band. Every model reports its walk-forward MAPE, directional accuracy and weight.
+- `market_read`: verdict score, stance, per-indicator reading and a Traditional Chinese summary paragraph.
+
+Forecast horizons: `5`, `7`, `14`, `30` days.
 
 ## Phase 2: Sentiment Baseline + Time-Bucket Features
 
@@ -244,28 +305,36 @@ See `docs/cron_templates.md` for scheduling templates:
 
 ## Project Structure
 
-Current structure:
-
 ```text
 stock_predict/
-├── README.md
-├── README.zh-TW.md
-├── LICENSE
-├── requirements.txt
-└── .gitignore
-```
-
-Planned structure:
-
-```text
-stock_predict/
-├── backend/          # API, data processing, model inference
-├── frontend/         # Plotly/Dash or web interface
-├── data/             # Local datasets and cached market data
-├── models/           # Training scripts and saved models
-├── crawler/          # News and social data collectors
-├── tests/            # Unit and integration tests
-└── requirements.txt
+├── api/
+│   └── index.py              # Flask app: all HTTP routes (also used by Vercel)
+├── backend/
+│   ├── app.py                # Local dev entry point (reuses api/index.py)
+│   ├── fetcher.py            # yfinance access, ETF/OTC resolution, TTL cache
+│   ├── symbols.py            # Symbol resolution and offline search
+│   ├── tw_directory.py       # Full TWSE/TPEx listing (Chinese name lookup)
+│   ├── us_directory.py       # Full U.S. listing (English name lookup)
+│   ├── directory_cache.py    # Shared snapshot / cache / fetch plumbing
+│   ├── analytics.py          # Risk metrics, DCA simulation, comparison series
+│   ├── symbol_catalog.py     # Offline catalog of popular TW/US stocks and ETFs
+│   ├── indicators.py         # Technical indicator series + latest snapshot
+│   ├── forecast.py           # Six forecasting models + walk-forward backtest
+│   ├── signals.py            # Auto indicator reading -> Traditional Chinese text
+│   └── news.py               # Google News RSS + RNN/lexicon sentiment
+├── public/
+│   ├── index.html            # Single-page UI
+│   ├── styles.css            # Design system (dark / light tokens)
+│   └── app.js                # State, charts, theme switching
+├── models/                   # Sentiment training / inference scripts + artifacts
+├── crawler/                  # Multi-source news crawler
+├── tests/
+│   └── test_stocksense.py    # 94 offline tests (synthetic data, no network)
+├── data/                     # Local datasets and pipeline output
+├── scripts/
+│   └── update_symbol_directory.py   # Refresh the offline name snapshots
+├── start.sh / stop.sh        # Start and stop the local service
+└── vercel.json               # Deployment config
 ```
 
 ## Data Sources
