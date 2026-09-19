@@ -118,8 +118,8 @@ def directory_status() -> dict:
     def _safe(module) -> dict:
         try:
             return module.status()
-        except Exception as exc:  # pragma: no cover
-            return {"loaded": 0, "error": str(exc)}
+        except Exception:  # pragma: no cover
+            return {"loaded": 0, "error": "unavailable"}
 
     return {
         "catalog_entries": len(CATALOG),

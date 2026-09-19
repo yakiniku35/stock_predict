@@ -10,6 +10,9 @@ GET /api/search          單獨的新聞情緒查詢（保留舊介面）
 
 from __future__ import annotations
 
+import logging
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -33,6 +36,10 @@ from fetcher import StockDataFetcher  # noqa: E402
 
 app = Flask(__name__)
 CORS(app)
+logger = logging.getLogger(__name__)
+
+# 靜態檔名允許的字元（只給本機開發用的靜態路由，避免路徑穿越）
+SAFE_STATIC_PATH = re.compile(r"^[A-Za-z0-9_./-]{1,128}$")
 
 fetcher = StockDataFetcher()
 
@@ -87,6 +94,12 @@ def _price_change_detail(prices: list[dict]) -> dict:
 
 def _bad_request(message: str, status: int = 400):
     return jsonify({"status": "error", "message": message}), status
+
+
+def _server_error(message: str, exc: Exception):
+    """把詳細錯誤寫進伺服器日誌，只回傳不含內部資訊的訊息給前端。"""
+    logger.exception(message, exc_info=exc)
+    return jsonify({"status": "error", "message": message}), 500
 
 
 # --------------------------------------------------------------------------- #
@@ -305,10 +318,7 @@ def get_stock_insight():
             "news_sentiment_list": pipeline_news,
         })
     except Exception as exc:  # pragma: no cover - 保底錯誤處理
-        return jsonify({
-            "status": "error",
-            "message": f"處理請求時發生錯誤: {exc}",
-        }), 500
+        return _server_error("處理請求時發生錯誤，請稍後再試", exc)
 
 
 @app.route("/api/search")
@@ -394,15 +404,33 @@ def compare_symbols():
 
 @app.route("/<path:filename>")
 def static_assets(filename: str):
-    """本機開發用的靜態檔（styles.css / app.js）。"""
-    target = PUBLIC_PATH / filename
-    if target.is_file():
-        return send_from_directory(PUBLIC_PATH, filename)
-    return jsonify({"status": "error", "message": "找不到檔案"}), 404
+    """本機開發用的靜態檔（styles.css / app.js）。
+
+    Vercel 上靜態檔由 CDN 提供，不會走到這裡。檔名先經過白名單與路徑檢查，
+    避免 `../` 之類的路徑穿越。
+    """
+    if not SAFE_STATIC_PATH.match(filename) or ".." in filename:
+        return jsonify({"status": "error", "message": "找不到檔案"}), 404
+
+    public_root = PUBLIC_PATH.resolve()
+    try:
+        target = (public_root / filename).resolve()
+        target.relative_to(public_root)          # 確認解析後仍在 public/ 之內
+    except (ValueError, OSError):
+        return jsonify({"status": "error", "message": "找不到檔案"}), 404
+
+    if not target.is_file():
+        return jsonify({"status": "error", "message": "找不到檔案"}), 404
+    return send_from_directory(public_root, target.relative_to(public_root).as_posix())
 
 
 handler = app
 
 
 if __name__ == "__main__":  # 本機開發：python api/index.py
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # 預設只綁 127.0.0.1、不開 debug；要對外或開 debug 需明確設環境變數
+    app.run(
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "5000")),
+        debug=os.environ.get("FLASK_DEBUG") == "1",
+    )

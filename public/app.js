@@ -1423,15 +1423,21 @@ function syncUrl() {
     window.history.replaceState(null, '', `${window.location.pathname}?${params}`);
 }
 
+// 網址參數屬於外部輸入，一律先過白名單再使用
+const VALID_PERIODS = ['1mo', '3mo', '6mo', '1y', '2y', '5y'];
+const VALID_INTERVALS = ['15m', '1h', '1d', '1wk', '1mo'];
+const TICKER_PATTERN = /^[A-Z0-9.^-]{1,12}$/;
+
 function readUrlParams() {
     const params = new URLSearchParams(window.location.search);
-    const ticker = params.get('ticker');
+    const ticker = (params.get('ticker') || '').trim().toUpperCase();
     const period = params.get('period');
     const interval = params.get('interval');
     const horizon = Number(params.get('horizon'));
-    if (ticker) state.ticker = ticker.toUpperCase();
-    if (period) state.period = period;
-    if (interval) state.interval = interval;
+
+    if (TICKER_PATTERN.test(ticker)) state.ticker = ticker;
+    if (VALID_PERIODS.includes(period)) state.period = period;
+    if (VALID_INTERVALS.includes(interval)) state.interval = interval;
     if ([5, 7, 14, 30].includes(horizon)) state.horizon = horizon;
 }
 
@@ -1477,6 +1483,15 @@ function exportCsv() {
 }
 
 /* ----------------------------- 新聞 ----------------------------- */
+function safeUrl(value) {
+    try {
+        const url = new URL(String(value), window.location.origin);
+        return (url.protocol === 'http:' || url.protocol === 'https:') ? url.href : '#';
+    } catch (error) {
+        return '#';
+    }
+}
+
 function renderNews(news, summary) {
     const list = $('newsList');
     const tag = $('newsModelTag');
@@ -1502,7 +1517,7 @@ function renderNews(news, summary) {
         const labelMap = { positive: '正面', negative: '負面', neutral: '中立' };
         const score = Number(item.sentiment_score || 0).toFixed(1);
         return `
-            <a class="news-item" data-sentiment="${escapeHtml(sentiment)}" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">
+            <a class="news-item" data-sentiment="${escapeHtml(sentiment)}" href="${escapeHtml(safeUrl(item.url))}" target="_blank" rel="noopener noreferrer">
                 <div class="news-title">${escapeHtml(item.headline)}</div>
                 <div class="news-meta">
                     <span class="badge" data-sentiment="${escapeHtml(sentiment)}">${labelMap[sentiment]} ${score}</span>

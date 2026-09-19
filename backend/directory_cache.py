@@ -11,10 +11,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from pathlib import Path
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 ROOT_PATH = Path(__file__).resolve().parent.parent
 BUNDLED_DIR = Path(__file__).resolve().parent / "data"
@@ -62,7 +65,9 @@ class DirectoryCache:
                     return self._entries
                 self._error = "資料來源回傳空清單"
             except Exception as exc:
-                self._error = str(exc)
+                # 只保留錯誤類別對外顯示，完整訊息寫日誌
+                logger.warning("%s 清單抓取失敗: %s", self.name, exc)
+                self._error = _error_category(exc)
 
             stale = _read_json(self.runtime_path)
             self._entries = stale or []
@@ -77,7 +82,7 @@ class DirectoryCache:
             "source": self._source,
             "bundled_snapshot": self.bundled_path.is_file(),
             "runtime_cache": self.runtime_path.is_file(),
-            "error": self._error,
+            "error": self._error,   # 只會是固定的錯誤類別字串
         }
 
     def reset(self) -> None:
@@ -89,6 +94,18 @@ class DirectoryCache:
 
 
 # --------------------------------------------------------------------------- #
+def _error_category(exc: Exception) -> str:
+    """把例外歸類成固定字串，避免把內部細節回傳到 API。"""
+    name = type(exc).__name__.lower()
+    if "timeout" in name:
+        return "timeout"
+    if "connection" in name or "proxy" in name or "ssl" in name:
+        return "network_unavailable"
+    if "http" in name:
+        return "source_error"
+    return "unavailable"
+
+
 def _read_json(path: Path) -> list[dict] | None:
     try:
         if not path.is_file():

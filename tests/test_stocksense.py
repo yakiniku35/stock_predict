@@ -26,12 +26,17 @@ import indicators as indicator_engine  # noqa: E402
 import signals as signal_engine  # noqa: E402
 import pandas as pd  # noqa: E402
 
+import news as news_module  # noqa: E402
 import symbols as symbol_utils  # noqa: E402
 import tw_directory  # noqa: E402
 import us_directory  # noqa: E402
 
 
 START_DATE = pd.Timestamp("2022-01-03")
+
+
+# ApiTests 會替換掉 news.analyze_ticker_news，先保留原本的實作供安全性測試使用
+ORIGINAL_ANALYZE_TICKER_NEWS = news_module.analyze_ticker_news
 
 
 def make_prices(values, start_volume: int = 1_000_000) -> list[dict]:
@@ -599,6 +604,74 @@ class ApiTests(unittest.TestCase):
             "/api/stock_insight?ticker=0050&period=1y&interval=15m"
         ).get_json()
         self.assertEqual(payload["request"]["effective_period"], "1mo")
+
+
+class SecurityTests(unittest.TestCase):
+    """本機靜態路由與錯誤訊息的安全性（對應 CodeQL 的路徑穿越與例外外洩告警）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        import index
+
+        cls.index = index
+        cls.client = index.app.test_client()
+
+    def test_static_route_serves_public_files(self):
+        self.assertEqual(self.client.get("/styles.css").status_code, 200)
+        self.assertEqual(self.client.get("/app.js").status_code, 200)
+
+    def test_path_traversal_is_rejected(self):
+        for path in ("/../requirements.txt",
+                     "/..%2f..%2frequirements.txt",
+                     "/subdir/../../backend/fetcher.py",
+                     "/%2e%2e/%2e%2e/requirements.txt"):
+            with self.subTest(path=path):
+                self.assertNotEqual(self.client.get(path).status_code, 200)
+
+    def test_unknown_static_file_returns_404(self):
+        self.assertEqual(self.client.get("/definitely-not-here.txt").status_code, 404)
+
+    def test_server_error_does_not_leak_exception_text(self):
+        import fetcher as fetcher_module
+
+        original = fetcher_module.StockDataFetcher.fetch_prices
+        secret = "內部堆疊訊息-SHOULD-NOT-LEAK"
+
+        def boom(self, *args, **kwargs):
+            raise RuntimeError(secret)
+
+        fetcher_module.StockDataFetcher.fetch_prices = boom
+        try:
+            response = self.client.get("/api/stock_insight?ticker=0050")
+            self.assertEqual(response.status_code, 500)
+            body = response.get_data(as_text=True)
+            self.assertNotIn(secret, body)
+            self.assertIn("請稍後再試", response.get_json()["message"])
+        finally:
+            fetcher_module.StockDataFetcher.fetch_prices = original
+
+    def test_news_failure_message_is_generic(self):
+        original = news_module.fetch_google_news
+        secret = "https://internal.example/secret-token"
+
+        def boom(**kwargs):
+            raise RuntimeError(secret)
+
+        news_module.fetch_google_news = boom
+        try:
+            result = ORIGINAL_ANALYZE_TICKER_NEWS(ticker="2330")
+            self.assertFalse(result["ok"])
+            self.assertNotIn(secret, str(result))
+        finally:
+            news_module.fetch_google_news = original
+
+    def test_directory_status_reports_category_not_raw_error(self):
+        import directory_cache
+
+        cache = directory_cache.DirectoryCache("unit_test_directory", lambda: (_ for _ in ()).throw(
+            ConnectionError("proxy 127.0.0.1:9 refused")))
+        cache.load()
+        self.assertIn(cache.status()["error"], {"network_unavailable", "timeout", "source_error", "unavailable"})
 
 
 class FetcherHelperTests(unittest.TestCase):

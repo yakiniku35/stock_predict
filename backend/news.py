@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -15,6 +16,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 ROOT_PATH = Path(__file__).resolve().parent.parent
 MODELS_PATH = ROOT_PATH / "models"
@@ -230,10 +233,12 @@ def analyze_ticker_news(ticker: str, query: str = "", max_articles: int = 60,
     try:
         records = fetch_google_news(ticker=ticker, query=query, max_articles=max_articles)
     except Exception as exc:
+        # 詳細錯誤只寫進伺服器日誌，回傳給前端的是固定訊息
+        logger.warning("新聞抓取失敗 (%s): %s", ticker, exc)
         return {
             "ok": False,
-            "error": f"新聞抓取失敗: {exc}",
-            "summary": summarize([], {}, model_type, "none", "news_fetch_failed", str(exc)),
+            "error": "新聞服務暫時無法使用，請稍後再試",
+            "summary": summarize([], {}, model_type, "none", "news_fetch_failed"),
             "news": [],
         }
 
@@ -243,7 +248,8 @@ def analyze_ticker_news(ticker: str, query: str = "", max_articles: int = 60,
         try:
             model_used, distribution = apply_rnn_sentiment(records)
         except Exception as exc:
-            model_error = str(exc)
+            logger.warning("RNN 情緒模型載入失敗，改用詞典模型: %s", exc)
+            model_error = "rnn_model_unavailable"
             model_status = "rnn_unavailable_fallback_lexicon"
             model_used, distribution = apply_lexicon_sentiment(records)
     else:

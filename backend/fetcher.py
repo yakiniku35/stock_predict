@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import threading
@@ -28,6 +29,8 @@ try:
 except ImportError:  # pragma: no cover - 由執行方式決定
     import symbols as symbol_utils
 
+
+logger = logging.getLogger(__name__)
 
 INTRADAY_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"}
 
@@ -149,7 +152,7 @@ class StockDataFetcher:
                 return None
             return self._clean(df, interval)
         except Exception as exc:  # pragma: no cover - 網路例外
-            print(f"[fetcher] {symbol} 抓取失敗: {exc}")
+            logger.warning("%s 價格抓取失敗: %s", symbol, exc)
             return None
 
     @staticmethod
@@ -201,7 +204,7 @@ class StockDataFetcher:
         try:
             info = yf.Ticker(symbol).info or {}
         except Exception as exc:  # pragma: no cover - 網路例外
-            print(f"[fetcher] {symbol} 概況讀取失敗: {exc}")
+            logger.warning("%s 概況讀取失敗: %s", symbol, exc)
             info = {}
 
         kind = symbol_utils.classify_quote_type(info.get("quoteType"))
@@ -329,7 +332,7 @@ class StockDataFetcher:
             matched.sort(key=lambda item: item.get("published_at") or "", reverse=True)
             return matched
         except Exception as exc:
-            print(f"[fetcher] 讀取新聞情緒資料錯誤: {exc}")
+            logger.warning("讀取新聞情緒資料錯誤: %s", exc)
             return []
 
     # ------------------------------------------------------------------ #
@@ -354,9 +357,8 @@ class StockDataFetcher:
             dividends = ticker.dividends
             splits = ticker.splits
         except Exception as exc:  # pragma: no cover - 網路例外
-            print(f"[fetcher] {symbol} 配息 / 分割讀取失敗: {exc}")
-            return {"status": "unavailable", "dividends": None, "splits": None,
-                    "error": str(exc)}
+            logger.warning("%s 配息 / 分割讀取失敗: %s", symbol, exc)
+            return {"status": "unavailable", "dividends": None, "splits": None}
 
         payload = {
             "status": "ok",
