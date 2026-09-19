@@ -81,7 +81,7 @@ Run everything with one command:
 
 ```bash
 ./start.sh          # http://127.0.0.1:5000
-python tests/test_stocksense.py   # 94 offline tests, no network needed
+python tests/test_stocksense.py   # 120 offline tests, no network needed
 ```
 
 Highlights:
@@ -103,7 +103,7 @@ Highlights:
 4. Both are cached under `data/runtime/` for 7 days and degrade to the bundled catalog offline.
 5. Optional offline snapshot for deployment: `python scripts/update_symbol_directory.py`.
 
-### Dividends and splits
+### Dividends, stock dividends and splits
 
 `/api/stock_insight` also returns `corporate_actions`:
 
@@ -113,7 +113,26 @@ Highlights:
 - `dividends.frequency`: monthly / quarterly / semi-annual / annual, detected from payment counts.
 - `dividends.consecutive_years`: consecutive years with a dividend.
 - `splits.records`: split and reverse-split history with readable labels.
-- `fund_profile` (ETF only): top 10 holdings and sector weightings.
+- `rights.records` (Taiwan only): stock-dividend (ex-rights) history — date, type, bonus shares per
+  1,000 held, and the ex-rights reference price.
+- `fund_profile` (ETF only): top 10 holdings and sector weightings, or `holdings_reference` when
+  Yahoo has no holdings data.
+
+**Taiwan stock dividends.** yfinance's `dividends` only covers *cash* dividends; Taiwanese bonus
+shares show up in `splits` instead (a NT$1 stock dividend becomes ratio 1.1). So a Taiwan ratio in
+`1 < ratio <= 1.5` is read as a stock dividend rather than a split — it moves to the ex-rights tab
+and is removed from the split tab, so the same event never appears twice. On top of that,
+`backend/tw_exrights.py` reads the TWSE ex-rights/ex-dividend calculation table (TWT49U) for the
+authoritative type and reference prices. That fetch happens on a background thread and is cached
+for 12 hours (30 minutes on failure), so the API never blocks on TWSE; if it is unreachable the
+ratio-derived numbers are used on their own.
+
+**ETF holdings.** `get_fund_profile()` accepts `funds_data` as either a property or a
+`get_funds_data()` method, matches column names loosely (`Holding Percent` / `holdingPercent` /
+`Weight`), and decides whether weights are fractions or percentages from their *sum* rather than
+per-row. When Yahoo has nothing — which is the norm for Taiwanese ETFs — it returns
+`holdings_reference` so the UI can point at the issuer's own daily disclosure instead of showing an
+empty panel.
 
 ### Risk, DCA and comparison
 
@@ -316,6 +335,7 @@ stock_predict/
 │   ├── tw_directory.py       # Full TWSE/TPEx listing (Chinese name lookup)
 │   ├── us_directory.py       # Full U.S. listing (English name lookup)
 │   ├── directory_cache.py    # Shared snapshot / cache / fetch plumbing
+│   ├── tw_exrights.py       # TWSE ex-rights/ex-dividend table (Taiwan stock dividends)
 │   ├── analytics.py          # Risk metrics, DCA simulation, comparison series
 │   ├── symbol_catalog.py     # Offline catalog of popular TW/US stocks and ETFs
 │   ├── indicators.py         # Technical indicator series + latest snapshot
@@ -329,7 +349,7 @@ stock_predict/
 ├── models/                   # Sentiment training / inference scripts + artifacts
 ├── crawler/                  # Multi-source news crawler
 ├── tests/
-│   └── test_stocksense.py    # 94 offline tests (synthetic data, no network)
+│   └── test_stocksense.py    # 120 offline tests (synthetic data, no network)
 ├── data/                     # Local datasets and pipeline output
 ├── scripts/
 │   └── update_symbol_directory.py   # Refresh the offline name snapshots
