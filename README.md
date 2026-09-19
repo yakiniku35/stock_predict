@@ -81,7 +81,7 @@ Run everything with one command:
 
 ```bash
 ./start.sh          # http://127.0.0.1:5000
-python tests/test_stocksense.py   # 121 offline tests, no network needed
+python tests/test_stocksense.py   # 124 offline tests, no network needed
 ```
 
 Highlights:
@@ -114,12 +114,13 @@ Highlights:
 - `dividends.consecutive_years`: consecutive years with a dividend.
 - `splits.records`: split and reverse-split history with readable labels.
 - `rights.records` (Taiwan only): stock-dividend (ex-rights) history — date, type, bonus shares per
-  1,000 held, and the ex-rights reference price.
+  1,000 held, and the ex-rights reference price. Bonus *shares* only, never an NT$ amount: converting
+  a ratio into "NT$X of stock dividend" assumes a NT$10 par value, which TWSE does not require.
 - `fund_profile` (ETF only): top 10 holdings and sector weightings, or `holdings_reference` when
   Yahoo has no holdings data.
 
 **Taiwan stock dividends.** yfinance's `dividends` only covers *cash* dividends; Taiwanese bonus
-shares show up in `splits` instead (a NT$1 stock dividend becomes ratio 1.1). So a Taiwan ratio in
+shares show up in `splits` instead (100 bonus shares per 1,000 held becomes ratio 1.1). So a Taiwan ratio in
 `1 < ratio <= 1.5` is read as a stock dividend rather than a split — it moves to the ex-rights tab
 and is removed from the split tab, so the same event never appears twice. On top of that,
 `backend/tw_exrights.py` reads the TWSE ex-rights/ex-dividend calculation table (TWT49U) for the
@@ -349,7 +350,7 @@ stock_predict/
 ├── models/                   # Sentiment training / inference scripts + artifacts
 ├── crawler/                  # Multi-source news crawler
 ├── tests/
-│   └── test_stocksense.py    # 121 offline tests (synthetic data, no network)
+│   └── test_stocksense.py    # 124 offline tests (synthetic data, no network)
 ├── data/                     # Local datasets and pipeline output
 ├── scripts/
 │   └── update_symbol_directory.py   # Refresh the offline name snapshots

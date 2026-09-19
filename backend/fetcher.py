@@ -358,13 +358,16 @@ class StockDataFetcher:
         if cached is not None:
             return _with_yield(cached, latest_price)
 
+        dividends = splits = None
+        yfinance_ok = True
         try:
             ticker = yf.Ticker(symbol)
             dividends = ticker.dividends
             splits = ticker.splits
         except Exception as exc:  # pragma: no cover - 網路例外
+            # yfinance 掛了不代表證交所的除權資料也拿不到，所以不直接 return
             logger.warning("%s 配息 / 分割讀取失敗: %s", symbol, exc)
-            return {"status": "unavailable", "dividends": None, "splits": None, "rights": None}
+            yfinance_ok = False
 
         payload = {
             "status": "ok",
@@ -373,7 +376,7 @@ class StockDataFetcher:
             "rights": _summarize_rights(splits, symbol, _tw_exrights_for(symbol)),
         }
         if not payload["dividends"] and not payload["splits"] and not payload["rights"]:
-            payload["status"] = "empty"
+            payload["status"] = "empty" if yfinance_ok else "unavailable"
         if _is_tw_symbol(symbol) and tw_exrights.is_loading():
             # 證交所資料還在背景抓。這時 payload["rights"] 可能已經有值（由 splits 推算），
             # 但還少了證交所的參考價，所以一樣要標記 pending —— 否則這份「推算版」會被
@@ -416,17 +419,16 @@ class StockDataFetcher:
 
         # 產業權重：Yahoo 有時給比例、有時給百分比，也可能塞進非數字，所以先清洗再排序
         cleaned_sectors = [
-            (key, _clean_number(value)) for key, value in sectors.items()
+            (key, weight) for key, weight in
+            ((key, _clean_number(value)) for key, value in sectors.items())
+            if weight is not None
         ]
+        # 比例還是百分比要看「全部加起來」，逐筆判斷會讓 40 與 0.9 混在一起時
+        # 變成 40% 與 90%（跟 _parse_top_holdings 同一個道理）
+        sector_scale = _scale_weights([weight for _, weight in cleaned_sectors])
         sector_weightings = [
-            {
-                "sector": key,
-                "weight_pct": round(weight * 100.0, 2) if abs(weight) <= 1.5 else round(weight, 2),
-            }
-            for key, weight in sorted(
-                (item for item in cleaned_sectors if item[1] is not None),
-                key=lambda item: -abs(item[1]),
-            )
+            {"sector": key, "weight_pct": round(weight * sector_scale, 2)}
+            for key, weight in sorted(cleaned_sectors, key=lambda item: -abs(item[1]))
         ][:10]
 
         profile = {
@@ -761,8 +763,8 @@ def _tw_etf_issuer(symbol: str | None) -> dict | None:
 # --------------------------------------------------------------------------- #
 # 除權（股票股利）
 # --------------------------------------------------------------------------- #
-# 台股「配股」在 yfinance 裡是以 splits 的形式出現：配 1 元股票股利（每仟股
-# 100 股）會變成 ratio 1.1。真正的股票分割台股極少見，而且倍數通常是 2 以上，
+# 台股「配股」在 yfinance 裡是以 splits 的形式出現：每仟股配 100 股會變成
+# ratio 1.1。真正的股票分割台股極少見，而且倍數通常是 2 以上，
 # 所以 1 < ratio <= 1.5 一律視為配股；超過的仍當成分割。
 TW_RIGHTS_RATIO_MAX = 1.5
 
@@ -786,19 +788,21 @@ def _looks_like_tw_rights(ratio: float | None) -> bool:
 def _rights_from_ratio(date_text: str, ratio: float) -> dict:
     """把 splits 的 ratio 還原成配股資訊。
 
-    ratio 1.1 → 每股多拿 0.1 股 → 每仟股配 100 股 → 股票股利 1 元（面額 10 元）。
+    ratio 1.1 → 每股多拿 0.1 股 → 每仟股配 100 股。
+
+    這裡刻意「只講股數、不講金額」：把配股換算成「股票股利 N 元」要假設面額
+    10 元，但證交所允許無面額或非 10 元面額的股票，ratio 本身也看不出面額，
+    算出來的金額可能是錯的。股數則是純粹由 ratio 導出，一定正確。
     """
     bonus = ratio - 1.0
     shares = bonus * 1000.0
-    stock_dividend = bonus * 10.0
     return {
         "date": date_text,
         "kind": "rights",
         "kind_label": RIGHTS_KIND_LABELS["rights"],
         "ratio": round(ratio, 6),
         "shares_per_1000": round(shares, 2),
-        "stock_dividend": round(stock_dividend, 4),
-        "label": f"每仟股配 {_format_ratio(shares)} 股（股票股利 {_format_ratio(stock_dividend)} 元）",
+        "label": f"每仟股配 {_format_ratio(shares)} 股",
         "source": "splits",
     }
 
@@ -843,7 +847,7 @@ def _merge_rights(twse_rows: list[dict], split_rows: list[dict]) -> list[dict]:
         if existing is None:
             merged[row["date"]] = dict(row)
             continue
-        for key in ("ratio", "shares_per_1000", "stock_dividend"):
+        for key in ("ratio", "shares_per_1000"):
             if row.get(key) is not None:
                 existing[key] = row[key]
         # 證交所只說「權」或「權息」，配股率是 splits 才有的細節，補進說明裡
@@ -891,7 +895,6 @@ def _summarize_rights(series, symbol: str | None = None, twse_records: list[dict
         return None
 
     total_shares = sum(row.get("shares_per_1000") or 0.0 for row in records)
-    total_stock_dividend = sum(row.get("stock_dividend") or 0.0 for row in records)
     sources = {row["source"] for row in records}
 
     return {
@@ -899,7 +902,6 @@ def _summarize_rights(series, symbol: str | None = None, twse_records: list[dict
         "count": len(records),
         "latest": records[0],
         "total_shares_per_1000": round(total_shares, 2) if total_shares else None,
-        "total_stock_dividend": round(total_stock_dividend, 4) if total_stock_dividend else None,
         "has_twse": any("twse" in source for source in sources),
         "sources": sorted(sources),
     }

@@ -516,6 +516,10 @@ class ApiTests(unittest.TestCase):
         import fetcher as fetcher_module
         import news as news_module
 
+        # 先掛還原再開始替換：setUpClass 中途失敗的話 tearDownClass 不會被呼叫，
+        # 被換掉的類別方法就會一路污染到後面的測試類別。
+        cls.addClassCleanup(cls._restore_patches)
+
         cls.prices = make_prices(trending_series())
         fetcher_module.StockDataFetcher._download = (
             lambda self, symbol, period, interval: cls.prices if symbol.endswith(".TW") or symbol == "SPY" else None
@@ -551,8 +555,8 @@ class ApiTests(unittest.TestCase):
         index.news_engine.analyze_ticker_news = news_module.analyze_ticker_news
         cls.client = index.app.test_client()
 
-    @classmethod
-    def tearDownClass(cls):
+    @staticmethod
+    def _restore_patches():
         """把 setUpClass 換掉的類別方法還原，免得污染後面的測試。"""
         for name, original in ORIGINAL_FETCHER_METHODS.items():
             setattr(fetcher_module.StockDataFetcher, name, original)
@@ -942,7 +946,9 @@ class TaiwanRightsTests(unittest.TestCase):
         record = rights["records"][0]
         self.assertEqual(record["kind"], "rights")
         self.assertAlmostEqual(record["shares_per_1000"], 100.0)
-        self.assertAlmostEqual(record["stock_dividend"], 1.0)
+        # 面額不一定是 10 元，所以不換算成「股票股利 N 元」
+        self.assertNotIn("stock_dividend", record)
+        self.assertNotIn("元", record["label"])
         # 同一筆不應該又出現在「分割」分頁
         self.assertIsNone(fetcher_module._summarize_splits(series, "2330.TW"))
 
@@ -1010,6 +1016,48 @@ class TaiwanRightsTests(unittest.TestCase):
             fetcher_module.yf = original_yf
             fetcher_module._tw_exrights_for = original_lookup
             tw_exrights.is_loading = original_is_loading
+
+    def test_twse_rights_survive_a_yfinance_failure(self):
+        """yfinance 掛掉不代表證交所的除權資料也拿不到（CodeRabbit review #11）。"""
+        class ExplodingTicker:
+            def __init__(self, symbol):
+                raise RuntimeError("yfinance 壞了")
+
+        twse = [{"date": "2019-06-24", "code": "2330", "kind": "rights", "kind_label": "權",
+                 "before_price": 100.0, "reference_price": 98.0, "value": 2.0}]
+
+        original_yf = fetcher_module.yf
+        original_lookup = fetcher_module._tw_exrights_for
+        fetcher_module.yf = type("FakeYf", (), {"Ticker": ExplodingTicker})
+        fetcher_module._tw_exrights_for = lambda symbol: twse
+        try:
+            payload = fetcher_module.StockDataFetcher().get_corporate_actions("2330.TW")
+        finally:
+            fetcher_module.yf = original_yf
+            fetcher_module._tw_exrights_for = original_lookup
+
+        self.assertIsNone(payload["dividends"])
+        self.assertIsNone(payload["splits"])
+        self.assertEqual(payload["rights"]["count"], 1)
+        self.assertEqual(payload["rights"]["records"][0]["reference_price"], 98.0)
+        self.assertEqual(payload["status"], "ok")
+
+    def test_status_is_unavailable_when_nothing_can_be_read(self):
+        class ExplodingTicker:
+            def __init__(self, symbol):
+                raise RuntimeError("yfinance 壞了")
+
+        original_yf = fetcher_module.yf
+        original_lookup = fetcher_module._tw_exrights_for
+        fetcher_module.yf = type("FakeYf", (), {"Ticker": ExplodingTicker})
+        fetcher_module._tw_exrights_for = lambda symbol: []
+        try:
+            payload = fetcher_module.StockDataFetcher().get_corporate_actions("2330.TW")
+        finally:
+            fetcher_module.yf = original_yf
+            fetcher_module._tw_exrights_for = original_lookup
+
+        self.assertEqual(payload["status"], "unavailable")
 
     def test_empty_inputs_return_none(self):
         self.assertIsNone(fetcher_module._summarize_rights(None, "2330.TW", []))
@@ -1106,6 +1154,31 @@ class FundHoldingsTests(unittest.TestCase):
         self.assertAlmostEqual(profile["sector_weightings"][0]["weight_pct"], 68.0)
         # 沒有持股就要給發行商資訊，前端才有東西可以顯示
         self.assertEqual(profile["holdings_reference"]["issuer"], "元大投信")
+
+    def test_mixed_sector_weights_use_one_shared_scale(self):
+        """百分比與比例混在一起時，不能逐筆判斷（CodeRabbit review #11）。"""
+        class FakeFundsData:
+            fund_overview = {}
+            sector_weightings = {"tech": 40.0, "fin": 0.9}
+            description = None
+            top_holdings = None
+
+        class FakeTicker:
+            def __init__(self, symbol):
+                self.symbol = symbol
+            funds_data = FakeFundsData()
+
+        original = fetcher_module.yf
+        fetcher_module.yf = type("FakeYf", (), {"Ticker": FakeTicker})
+        try:
+            profile = fetcher_module.StockDataFetcher().get_fund_profile("0056.TW")
+        finally:
+            fetcher_module.yf = original
+
+        weights = {item["sector"]: item["weight_pct"] for item in profile["sector_weightings"]}
+        # 總和 40.9 > 1.5，所以整批都當成百分比；0.9 不可以被放大成 90
+        self.assertAlmostEqual(weights["tech"], 40.0)
+        self.assertAlmostEqual(weights["fin"], 0.9)
 
     def test_tw_etf_falls_back_to_the_issuer(self):
         reference = fetcher_module._tw_etf_issuer("0050.TW")

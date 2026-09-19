@@ -108,7 +108,7 @@ python -m crawler.news_scraper \
 
 ```bash
 ./start.sh          # 開啟 http://127.0.0.1:5000
-python tests/test_stocksense.py   # 121 個離線測試，不需要網路
+python tests/test_stocksense.py   # 124 個離線測試，不需要網路
 ```
 
 ### 主要功能
@@ -163,10 +163,11 @@ python scripts/update_symbol_directory.py --market us # 只更新美股
 #### 台股的除權是怎麼算出來的
 
 yfinance 的 `dividends` 只有**現金股利**，台股的**配股**不在裡面，而是躲在
-`splits` 裡（配 1 元股票股利 → ratio 1.1）。所以做了兩件事：
+`splits` 裡（每仟股配 100 股 → ratio 1.1）。所以做了兩件事：
 
 1. **判讀**：台股 ratio 落在 `1 < ratio <= 1.5` 一律視為配股而非分割，
-   還原成「每仟股配 N 股 / 股票股利 M 元」；真正的分割（例如 ratio 2）仍留在分割分頁，
+   還原成「每仟股配 N 股」（只講股數不講金額：換算成「股票股利 N 元」要假設面額
+   10 元，但證交所允許無面額或非 10 元面額的股票）；真正的分割（例如 ratio 2）仍留在分割分頁，
    同一筆不會重複出現在兩個分頁。
 2. **補權威資料**：`backend/tw_exrights.py` 另外接證交所的
    [除權除息計算結果表（TWT49U）](https://www.twse.com.tw/zh/trading/exchange/twt49u.html)，
@@ -274,7 +275,7 @@ stock_predict/
 ├── models/                   # 情緒模型訓練／推論腳本與權重
 ├── crawler/                  # 多來源新聞爬蟲
 ├── tests/
-│   └── test_stocksense.py    # 121 個離線測試（合成資料，不需網路）
+│   └── test_stocksense.py    # 124 個離線測試（合成資料，不需網路）
 ├── data/                     # 本機資料集與管線輸出
 ├── scripts/
 │   └── update_symbol_directory.py   # 更新名稱對照表快照
