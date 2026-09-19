@@ -80,7 +80,7 @@ Run everything with one command:
 
 ```bash
 ./start.sh          # http://127.0.0.1:5000
-python tests/test_stocksense.py   # 90 offline tests, no network needed
+python tests/test_stocksense.py   # 94 offline tests, no network needed
 ```
 
 Highlights:
@@ -328,7 +328,7 @@ stock_predict/
 ├── models/                   # Sentiment training / inference scripts + artifacts
 ├── crawler/                  # Multi-source news crawler
 ├── tests/
-│   └── test_stocksense.py    # 90 offline tests (synthetic data, no network)
+│   └── test_stocksense.py    # 94 offline tests (synthetic data, no network)
 ├── data/                     # Local datasets and pipeline output
 ├── scripts/
 │   └── update_symbol_directory.py   # Refresh the offline name snapshots

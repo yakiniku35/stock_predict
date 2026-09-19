@@ -65,7 +65,7 @@ pip install -r requirements.txt
 ## 4️⃣ 驗證與除錯
 
 ```bash
-python tests/test_stocksense.py    # 90 個離線測試（不需網路）
+python tests/test_stocksense.py    # 94 個離線測試（不需網路）
 ./test_api.sh                      # 需先 ./start.sh
 curl "http://127.0.0.1:5000/api/health"
 ```
