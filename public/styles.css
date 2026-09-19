@@ -667,6 +667,9 @@ kbd {
     font-variant-numeric: tabular-nums;
 }
 .data-table tbody tr:hover { background: var(--surface-hover); }
+/* 日期與數值欄不要折行；說明欄可以換行，但太窄時寧可讓表格橫向捲動 */
+.data-table th, .data-table td { white-space: nowrap; }
+.data-table td.cell-desc { text-align: left; white-space: normal; min-width: 15rem; }
 
 .section-label {
     font-size: 0.72rem; font-weight: 700; color: var(--text-subtle);
@@ -703,6 +706,19 @@ kbd {
     color: var(--text-muted); text-align: center; font-size: 0.88rem;
 }
 .empty-state svg { width: 32px; height: 32px; color: var(--text-subtle); }
+.empty-state p { margin: 0; max-width: 34rem; line-height: 1.6; }
+
+.text-link {
+    color: var(--accent); text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    white-space: nowrap;
+}
+.text-link:hover { border-bottom-color: var(--accent); }
+
+.table-note {
+    margin: var(--space-2) 0 0;
+    color: var(--text-subtle); font-size: 0.78rem; line-height: 1.5;
+}
 
 .skeleton {
     border-radius: var(--radius-sm);

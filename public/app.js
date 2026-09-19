@@ -932,22 +932,36 @@ function renderCorporateActions(actions, overview) {
     const dividends = actions?.dividends;
     const splits = actions?.splits;
 
+    const rights = actions?.rights;
+    // 證交所還在背景抓的時候 rights 會是空的，但分頁要留著，
+    // 使用者才看得到「正在取得資料，請稍後再查一次」
+    const available = {
+        dividends: !!dividends,
+        rights: !!rights || !!actions?.rights_pending,
+        splits: !!splits,
+    };
+
     els('[data-action-tab]').forEach((button) => {
         const key = button.dataset.actionTab;
+        button.disabled = !available[key];
         button.setAttribute('aria-pressed', String(key === state.actionTab));
-        button.disabled = key === 'splits' ? !splits : !dividends;
     });
+    // 目前分頁沒資料就自動換到有資料的那一個，免得使用者看到空白
+    if (!available[state.actionTab]) {
+        state.actionTab = ['dividends', 'rights', 'splits'].find((key) => available[key]) || 'dividends';
+        els('[data-action-tab]').forEach((button) =>
+            button.setAttribute('aria-pressed', String(button.dataset.actionTab === state.actionTab)));
+    }
 
     if (!dividends) {
-        tagEl.textContent = splits ? '無配息' : '無紀錄';
-        statsEl.innerHTML = '';
+        tagEl.textContent = (rights || splits) ? '無現金配息' : '無紀錄';
+        // 只配股不配息的台股仍然要看得到累計配股
+        statsEl.innerHTML = renderStatChips(rightsStats(rights));
         $('dividendSubtitle').textContent = actions?.status === 'unavailable'
             ? '暫時無法取得配息資料'
             : '這檔標的在 Yahoo Finance 沒有配息紀錄（常見於不配息個股或剛上市的 ETF）';
         clearChart('dividendChart');
-        wrapEl.innerHTML = splits
-            ? renderSplitTable(splits)
-            : '<div class="empty-state">沒有配息或分割紀錄</div>';
+        renderActionTable(actions, currency);
         return;
     }
 
@@ -957,21 +971,31 @@ function renderCorporateActions(actions, overview) {
         ? `${dividends.first_date} 起共 ${dividends.total_records} 次配息紀錄（表格顯示最近 ${shown} 筆）`
         : `${dividends.first_date} 起共 ${dividends.total_records} 次配息紀錄`;
 
-    statsEl.innerHTML = [
+    statsEl.innerHTML = renderStatChips([
         ['近12個月配息', `${fmtPrice(dividends.ttm_total, 2)}`, currency],
         ['現金殖利率', dividends.ttm_yield_pct != null ? `${dividends.ttm_yield_pct}%` : '--', '以現價計算'],
         ['近三年平均', dividends.average_3y != null ? fmtPrice(dividends.average_3y, 2) : '--', '每年配息'],
         ['連續配息', `${dividends.consecutive_years} 年`, `累計 ${dividends.years_paid} 年有配息`],
         ['最近除息', dividends.latest?.date || '--', `配 ${fmtPrice(dividends.latest?.amount, 2)}`],
-    ].map(([label, value, note]) => `
+        ...rightsStats(rights),
+    ]);
+
+    drawDividendChart(dividends);
+    renderActionTable(actions, currency);
+}
+
+function rightsStats(rights) {
+    if (!rights?.total_shares_per_1000) return [];
+    return [['累計配股', `${rights.total_shares_per_1000} 股`, `每仟股，共 ${rights.count} 次除權`]];
+}
+
+function renderStatChips(rows) {
+    return rows.map(([label, value, note]) => `
         <div class="stat-chip">
             <dt>${escapeHtml(label)}</dt>
             <dd>${escapeHtml(value)}</dd>
             <small>${escapeHtml(note || '')}</small>
         </div>`).join('');
-
-    drawDividendChart(dividends);
-    renderActionTable(dividends, splits, currency);
 }
 
 function drawDividendChart(dividends) {
@@ -1005,10 +1029,17 @@ function clearChart(id) {
     if (node) node.innerHTML = '';
 }
 
-function renderActionTable(dividends, splits, currency) {
+function renderActionTable(actions, currency) {
     const wrap = $('actionTableWrap');
+    const dividends = actions?.dividends;
     if (state.actionTab === 'splits') {
-        wrap.innerHTML = splits ? renderSplitTable(splits) : '<div class="empty-state">沒有股票分割紀錄</div>';
+        wrap.innerHTML = actions?.splits
+            ? renderSplitTable(actions.splits)
+            : '<div class="empty-state">沒有股票分割紀錄</div>';
+        return;
+    }
+    if (state.actionTab === 'rights') {
+        wrap.innerHTML = renderRightsTable(actions?.rights, actions?.rights_pending);
         return;
     }
     if (!dividends) {
@@ -1032,6 +1063,36 @@ function renderActionTable(dividends, splits, currency) {
         </table>`;
 }
 
+function renderRightsTable(rights, pending) {
+    if (!rights) {
+        return pending
+            ? '<div class="empty-state">正在向證券交易所取得除權息資料，請稍後再查一次</div>'
+            : '<div class="empty-state">沒有除權（配股）紀錄</div>';
+    }
+
+    let note = rights.has_twse
+        ? '資料來源：證券交易所除權除息計算結果表'
+        : '依 Yahoo Finance 的還原係數推算（台股配股會以「分割」的形式記錄）';
+    if (pending) {
+        note += '；證交所資料仍在背景取得中，稍後重查會補上參考價';
+    }
+
+    return `
+        <table class="data-table">
+            <thead><tr><th>除權日</th><th>類別</th><th>每仟股配股</th><th>參考價</th></tr></thead>
+            <tbody>
+                ${rights.records.map((record) => `
+                    <tr>
+                        <td>${escapeHtml(record.date)}</td>
+                        <td class="cell-desc">${escapeHtml(record.label || record.kind_label || '除權')}</td>
+                        <td>${record.shares_per_1000 != null ? `${record.shares_per_1000} 股` : '--'}</td>
+                        <td>${record.reference_price != null ? fmtPrice(record.reference_price, 2) : '--'}</td>
+                    </tr>`).join('')}
+            </tbody>
+        </table>
+        <p class="table-note">${escapeHtml(note)}</p>`;
+}
+
 function renderSplitTable(splits) {
     return `
         <table class="data-table">
@@ -1040,11 +1101,30 @@ function renderSplitTable(splits) {
                 ${splits.records.map((record) => `
                     <tr>
                         <td>${escapeHtml(record.date)}</td>
-                        <td style="text-align:left">${escapeHtml(record.label)}</td>
+                        <td class="cell-desc">${escapeHtml(record.label)}</td>
                         <td>${record.ratio}</td>
                     </tr>`).join('')}
             </tbody>
         </table>`;
+}
+
+function renderHoldingsFallback(reference) {
+    // 台股 ETF 的成分股 Yahoo Finance 幾乎都沒有，只能導去發行商官網
+    const base = 'Yahoo Finance 沒有提供這檔 ETF 的成分資料';
+    if (!reference) {
+        return `<div class="empty-state">${base}</div>`;
+    }
+
+    const issuer = reference.issuer || '發行投信';
+    const href = reference.url ? safeUrl(reference.url) : '#';
+    const link = href !== '#'
+        ? `<a class="text-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">前往${escapeHtml(issuer)}官網</a>`
+        : '';
+    return `
+        <div class="empty-state">
+            <p>${base}。</p>
+            <p>${escapeHtml(reference.fund_name || '')}由${escapeHtml(issuer)}發行，完整持股請看發行商每日公告。${link}</p>
+        </div>`;
 }
 
 /* ----------------------------- 延伸資料 ----------------------------- */
@@ -1059,9 +1139,11 @@ function renderExtraPanel(data) {
         $('extraSubtitle').textContent = '看清楚這檔 ETF 實際買了什麼';
 
         if (!profile || (!profile.top_holdings?.length && !profile.sector_weightings?.length)) {
-            body.innerHTML = '<div class="empty-state">Yahoo Finance 沒有提供這檔 ETF 的成分資料</div>';
+            body.innerHTML = renderHoldingsFallback(profile?.holdings_reference);
             return;
         }
+
+        const reference = profile.top_holdings?.length ? '' : renderHoldingsFallback(profile.holdings_reference);
 
         const holdings = profile.top_holdings?.length ? `
             <div class="section-label">前十大持股</div>
@@ -1080,7 +1162,7 @@ function renderExtraPanel(data) {
                     <div class="bar-track"><span style="width:${Math.min(100, Number(item.weight_pct))}%"></span></div>
                 </div>`).join('')}` : '';
 
-        body.innerHTML = holdings + sectors;
+        body.innerHTML = holdings + reference + sectors;
         return;
     }
 
@@ -1609,8 +1691,7 @@ function initEvents() {
         state.actionTab = value;
         els('[data-action-tab]').forEach((button) =>
             button.setAttribute('aria-pressed', String(button.dataset.actionTab === value)));
-        const actions = state.data?.corporate_actions;
-        renderActionTable(actions?.dividends, actions?.splits, state.data?.company_overview?.currency || '');
+        renderActionTable(state.data?.corporate_actions, state.data?.company_overview?.currency || '');
     });
 
     $('watchBtn').addEventListener('click', toggleWatch);

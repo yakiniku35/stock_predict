@@ -30,6 +30,7 @@ import pandas as pd  # noqa: E402
 import news as news_module  # noqa: E402
 import symbols as symbol_utils  # noqa: E402
 import tw_directory  # noqa: E402
+import tw_exrights  # noqa: E402
 import us_directory  # noqa: E402
 
 
@@ -38,6 +39,13 @@ START_DATE = pd.Timestamp("2022-01-03")
 
 # ApiTests 會替換掉 news.analyze_ticker_news，先保留原本的實作供安全性測試使用
 ORIGINAL_ANALYZE_TICKER_NEWS = news_module.analyze_ticker_news
+
+# ApiTests 也會換掉 StockDataFetcher 上的幾個方法；這些是類別層級的替換，
+# 不還原的話會影響到後面跑的測試（例如 FundHoldingsTests）。
+PATCHED_FETCHER_METHODS = ("_download", "get_corporate_actions", "get_fund_profile", "get_company_overview")
+ORIGINAL_FETCHER_METHODS = {
+    name: getattr(fetcher_module.StockDataFetcher, name) for name in PATCHED_FETCHER_METHODS
+}
 
 
 def make_prices(values, start_volume: int = 1_000_000) -> list[dict]:
@@ -508,6 +516,10 @@ class ApiTests(unittest.TestCase):
         import fetcher as fetcher_module
         import news as news_module
 
+        # 先掛還原再開始替換：setUpClass 中途失敗的話 tearDownClass 不會被呼叫，
+        # 被換掉的類別方法就會一路污染到後面的測試類別。
+        cls.addClassCleanup(cls._restore_patches)
+
         cls.prices = make_prices(trending_series())
         fetcher_module.StockDataFetcher._download = (
             lambda self, symbol, period, interval: cls.prices if symbol.endswith(".TW") or symbol == "SPY" else None
@@ -518,10 +530,12 @@ class ApiTests(unittest.TestCase):
                 [2.0, 2.5],
                 index=pd.DatetimeIndex([recent - pd.Timedelta(days=400), recent - pd.Timedelta(days=30)]),
             )
+            splits = pd.Series([1.1], index=pd.DatetimeIndex([recent - pd.Timedelta(days=800)]))
             payload = {
                 "status": "ok",
                 "dividends": fetcher_module._summarize_dividends(series),
-                "splits": None,
+                "splits": fetcher_module._summarize_splits(splits, symbol),
+                "rights": fetcher_module._summarize_rights(splits, symbol, []),
             }
             return fetcher_module._with_yield(payload, latest_price)
 
@@ -541,10 +555,25 @@ class ApiTests(unittest.TestCase):
         index.news_engine.analyze_ticker_news = news_module.analyze_ticker_news
         cls.client = index.app.test_client()
 
+    @staticmethod
+    def _restore_patches():
+        """把 setUpClass 換掉的類別方法還原，免得污染後面的測試。"""
+        for name, original in ORIGINAL_FETCHER_METHODS.items():
+            setattr(fetcher_module.StockDataFetcher, name, original)
+        news_module.analyze_ticker_news = ORIGINAL_ANALYZE_TICKER_NEWS
+
     def test_health(self):
         payload = self.client.get("/api/health").get_json()
         self.assertEqual(payload["status"], "healthy")
         self.assertTrue(payload["features"]["etf_support"])
+
+    def test_stock_insight_carries_the_rights_block(self):
+        payload = self.client.get("/api/stock_insight?ticker=0050&period=1y").get_json()
+        rights = payload["corporate_actions"]["rights"]
+        self.assertEqual(rights["records"][0]["kind"], "rights")
+        self.assertAlmostEqual(rights["records"][0]["shares_per_1000"], 100.0)
+        # 台股的配股不該重複出現在「分割」分頁
+        self.assertIsNone(payload["corporate_actions"]["splits"])
 
     def test_symbol_search_endpoint(self):
         payload = self.client.get("/api/symbol_search?q=0050").get_json()
@@ -795,6 +824,372 @@ class FetcherHelperTests(unittest.TestCase):
         self.assertEqual(fetcher_module.clamp_period("1y", "15m"), "1mo")
         self.assertEqual(fetcher_module.clamp_period("5d", "5m"), "5d")
         self.assertEqual(fetcher_module.clamp_period("1y", "1d"), "1y")
+
+
+class TwExRightsParserTests(unittest.TestCase):
+    """證交所除權除息計算結果表（TWT49U）的解析。"""
+
+    def setUp(self):
+        tw_exrights.reset_cache()
+
+    def tearDown(self):
+        tw_exrights.reset_cache()
+
+    def test_rwd_payload_with_fields_and_rows(self):
+        payload = {
+            "fields": ["資料日期", "股票代號", "股票名稱", "除權息前收盤價",
+                       "除權息參考價", "權值+息值", "權/息"],
+            "data": [
+                ["114/07/18", "2330", "台積電", "1,100.00", "1,086.00", "14.00", "息"],
+                ["113/08/15", "2317", "鴻海", "200.00", "195.50", "5.20", "權息"],
+            ],
+        }
+        records = tw_exrights.parse_payload(payload)
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["date"], "2025-07-18")
+        self.assertEqual(records[0]["code"], "2330")
+        self.assertEqual(records[0]["kind"], "dividend")
+        self.assertAlmostEqual(records[0]["before_price"], 1100.0)
+        self.assertEqual(records[1]["kind"], "both")
+
+    def test_openapi_payload_with_dict_rows(self):
+        payload = {"data": [{
+            "資料日期": "20250718", "股票代號": "0050", "股票名稱": "元大台灣50",
+            "除權息前收盤價": "190.00", "除權息參考價": "187.00",
+            "權值+息值": "3.00", "權/息": "權",
+        }]}
+        records = tw_exrights.parse_payload(payload)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["kind"], "rights")
+        self.assertEqual(records[0]["date"], "2025-07-18")
+        self.assertEqual(records[0]["name"], "元大台灣50")
+
+    def test_english_field_names_are_also_understood(self):
+        payload = {"data": [{
+            "Date": "20250718", "Code": "0050", "Name": "元大台灣50",
+            "RightsOrDividend": "息",
+        }]}
+        records = tw_exrights.parse_payload(payload)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["code"], "0050")
+        self.assertEqual(records[0]["kind"], "dividend")
+
+    def test_one_title_never_maps_to_two_fields(self):
+        """「除權息前收盤價」曾經同時被 before_price 與 kind 命中。"""
+        self.assertEqual(tw_exrights._match_field("除權息前收盤價"), "before_price")
+        self.assertEqual(tw_exrights._match_field("權/息"), "kind")
+        self.assertEqual(tw_exrights._match_field("權值+息值"), "value")
+
+    def test_date_formats(self):
+        for raw, expected in [
+            ("114/07/18", "2025-07-18"),
+            ("1140718", "2025-07-18"),
+            ("20250718", "2025-07-18"),
+            ("2025-07-18", "2025-07-18"),
+        ]:
+            self.assertEqual(tw_exrights._normalize_date(raw), expected, raw)
+        for bad in ["", None, "民國", "99"]:
+            self.assertIsNone(tw_exrights._normalize_date(bad))
+
+    def test_broken_payload_returns_empty_list(self):
+        self.assertEqual(tw_exrights.parse_payload({}), [])
+        self.assertEqual(tw_exrights.parse_payload({"data": [["x"]], "fields": ["無關"]}), [])
+        self.assertEqual(tw_exrights.parse_payload({"data": [None, 3]}), [])
+
+    def test_network_failure_is_silent(self):
+        original = tw_exrights._fetch
+        tw_exrights._fetch = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            self.assertEqual(tw_exrights.fetch_records(), [])
+        finally:
+            tw_exrights._fetch = original
+
+    def test_get_records_for_filters_by_code_and_does_not_block(self):
+        tw_exrights._cache["5"] = (time.time(), [
+            {"date": "2025-07-18", "code": "2330", "kind": "dividend"},
+            {"date": "2024-07-11", "code": "2330", "kind": "rights"},
+            {"date": "2025-07-18", "code": "2317", "kind": "both"},
+        ])
+        records = tw_exrights.get_records_for("2330.TW")
+        self.assertEqual([item["code"] for item in records], ["2330", "2330"])
+        self.assertEqual(records[0]["date"], "2025-07-18")   # 新到舊
+
+    def test_stale_in_flight_marker_is_retried(self):
+        """Serverless 凍結容器會讓背景執行緒跑不完，不能因此永遠卡住。"""
+        tw_exrights._loading["5"] = time.time() - tw_exrights.LOADING_STALE_SECONDS - 1
+        self.assertFalse(tw_exrights.is_loading())
+        self.assertNotIn("5", tw_exrights._loading)
+
+        tw_exrights._loading["5"] = time.time()
+        self.assertTrue(tw_exrights.is_loading())
+
+    def test_empty_result_uses_the_short_ttl(self):
+        stale = time.time() - tw_exrights.FAILURE_TTL_SECONDS - 1
+        tw_exrights._cache["5"] = (stale, [])
+        self.assertIsNone(tw_exrights._cached_records("5"))
+        fresh = time.time() - tw_exrights.FAILURE_TTL_SECONDS + 60
+        tw_exrights._cache["5"] = (fresh, [])
+        self.assertEqual(tw_exrights._cached_records("5"), [])
+
+
+class TaiwanRightsTests(unittest.TestCase):
+    """台股配股（除權）的判讀與合併。"""
+
+    @staticmethod
+    def splits(mapping: dict) -> pd.Series:
+        return pd.Series(list(mapping.values()), index=pd.to_datetime(list(mapping.keys())))
+
+    def test_tw_bonus_share_ratio_is_read_as_rights_not_split(self):
+        series = self.splits({"2021-07-15": 1.1})
+        rights = fetcher_module._summarize_rights(series, "2330.TW", [])
+        self.assertIsNotNone(rights)
+        record = rights["records"][0]
+        self.assertEqual(record["kind"], "rights")
+        self.assertAlmostEqual(record["shares_per_1000"], 100.0)
+        # 面額不一定是 10 元，所以不換算成「股票股利 N 元」
+        self.assertNotIn("stock_dividend", record)
+        self.assertNotIn("元", record["label"])
+        # 同一筆不應該又出現在「分割」分頁
+        self.assertIsNone(fetcher_module._summarize_splits(series, "2330.TW"))
+
+    def test_real_splits_stay_in_the_split_tab(self):
+        series = self.splits({"2022-03-01": 2.0, "2023-01-05": 0.5})
+        self.assertIsNone(fetcher_module._summarize_rights(series, "2330.TW", []))
+        splits = fetcher_module._summarize_splits(series, "2330.TW")
+        self.assertEqual(splits["count"], 2)
+
+    def test_us_symbols_have_no_rights_and_keep_every_split(self):
+        series = self.splits({"2020-08-31": 4.0, "2021-01-05": 1.1})
+        self.assertIsNone(fetcher_module._summarize_rights(series, "AAPL", []))
+        self.assertEqual(fetcher_module._summarize_splits(series, "AAPL")["count"], 2)
+
+    def test_twse_records_are_merged_with_the_split_ratio(self):
+        series = self.splits({"2021-07-15": 1.1})
+        twse = [
+            {"date": "2021-07-15", "code": "2330", "kind": "both", "kind_label": "權息",
+             "before_price": 600.0, "reference_price": 586.0, "value": 14.0},
+            {"date": "2019-06-24", "code": "2330", "kind": "rights", "kind_label": "權",
+             "before_price": 100.0, "reference_price": 98.0, "value": 2.0},
+            {"date": "2020-06-18", "code": "2330", "kind": "dividend", "kind_label": "息",
+             "before_price": 90.0, "reference_price": 87.5, "value": 2.5},
+        ]
+        rights = fetcher_module._summarize_rights(series, "2330.TW", twse)
+        # 純除息不列在除權分頁
+        self.assertEqual(len(rights["records"]), 2)
+        merged = rights["records"][0]
+        self.assertEqual(merged["date"], "2021-07-15")
+        self.assertEqual(merged["source"], "twse+splits")
+        self.assertAlmostEqual(merged["shares_per_1000"], 100.0)
+        self.assertAlmostEqual(merged["reference_price"], 586.0)
+        self.assertAlmostEqual(merged["drop_pct"], 2.33)
+        self.assertTrue(rights["has_twse"])
+
+    def test_estimate_is_marked_pending_and_not_cached_while_twse_loads(self):
+        """證交所還在背景抓的時候，推算版不能被快取住（Copilot review #11）。"""
+        series = self.splits({"2021-07-15": 1.1})
+
+        class FakeTicker:
+            def __init__(self, symbol):
+                self.dividends = pd.Series(dtype=float)
+                self.splits = series
+
+        original_yf = fetcher_module.yf
+        original_lookup = fetcher_module._tw_exrights_for
+        original_is_loading = tw_exrights.is_loading
+        fetcher_module.yf = type("FakeYf", (), {"Ticker": FakeTicker})
+        fetcher_module._tw_exrights_for = lambda symbol: []        # 證交所還沒回來
+        tw_exrights.is_loading = lambda: True
+        try:
+            fetcher = fetcher_module.StockDataFetcher()
+            payload = fetcher.get_corporate_actions("2330.TW")
+            # 推算值照樣給使用者看，但要標記還沒拿到證交所資料
+            self.assertIsNotNone(payload["rights"])
+            self.assertTrue(payload["rights_pending"])
+            self.assertIsNone(fetcher._profile_cache.get(("actions", "2330.TW")))
+
+            # 證交所回來之後就可以快取了
+            tw_exrights.is_loading = lambda: False
+            settled = fetcher.get_corporate_actions("2330.TW")
+            self.assertNotIn("rights_pending", settled)
+            self.assertIsNotNone(fetcher._profile_cache.get(("actions", "2330.TW")))
+        finally:
+            fetcher_module.yf = original_yf
+            fetcher_module._tw_exrights_for = original_lookup
+            tw_exrights.is_loading = original_is_loading
+
+    def test_twse_rights_survive_a_yfinance_failure(self):
+        """yfinance 掛掉不代表證交所的除權資料也拿不到（CodeRabbit review #11）。"""
+        class ExplodingTicker:
+            def __init__(self, symbol):
+                raise RuntimeError("yfinance 壞了")
+
+        twse = [{"date": "2019-06-24", "code": "2330", "kind": "rights", "kind_label": "權",
+                 "before_price": 100.0, "reference_price": 98.0, "value": 2.0}]
+
+        original_yf = fetcher_module.yf
+        original_lookup = fetcher_module._tw_exrights_for
+        fetcher_module.yf = type("FakeYf", (), {"Ticker": ExplodingTicker})
+        fetcher_module._tw_exrights_for = lambda symbol: twse
+        try:
+            payload = fetcher_module.StockDataFetcher().get_corporate_actions("2330.TW")
+        finally:
+            fetcher_module.yf = original_yf
+            fetcher_module._tw_exrights_for = original_lookup
+
+        self.assertIsNone(payload["dividends"])
+        self.assertIsNone(payload["splits"])
+        self.assertEqual(payload["rights"]["count"], 1)
+        self.assertEqual(payload["rights"]["records"][0]["reference_price"], 98.0)
+        self.assertEqual(payload["status"], "ok")
+
+    def test_status_is_unavailable_when_nothing_can_be_read(self):
+        class ExplodingTicker:
+            def __init__(self, symbol):
+                raise RuntimeError("yfinance 壞了")
+
+        original_yf = fetcher_module.yf
+        original_lookup = fetcher_module._tw_exrights_for
+        fetcher_module.yf = type("FakeYf", (), {"Ticker": ExplodingTicker})
+        fetcher_module._tw_exrights_for = lambda symbol: []
+        try:
+            payload = fetcher_module.StockDataFetcher().get_corporate_actions("2330.TW")
+        finally:
+            fetcher_module.yf = original_yf
+            fetcher_module._tw_exrights_for = original_lookup
+
+        self.assertEqual(payload["status"], "unavailable")
+
+    def test_empty_inputs_return_none(self):
+        self.assertIsNone(fetcher_module._summarize_rights(None, "2330.TW", []))
+        self.assertIsNone(fetcher_module._summarize_rights(pd.Series(dtype=float), "2330.TW", []))
+        self.assertIsNone(fetcher_module._summarize_rights(self.splits({"2021-07-15": 1.1}), None, []))
+
+    def test_exrights_lookup_never_raises(self):
+        original = tw_exrights.get_records_for
+        tw_exrights.get_records_for = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            self.assertEqual(fetcher_module._tw_exrights_for("2330.TW"), [])
+        finally:
+            tw_exrights.get_records_for = original
+        self.assertEqual(fetcher_module._tw_exrights_for("AAPL"), [])
+
+
+class FundHoldingsTests(unittest.TestCase):
+    """ETF 前十大持股解析要能吃下 yfinance 各版本的欄位名稱。"""
+
+    def test_fraction_weights_are_scaled_to_percent(self):
+        frame = pd.DataFrame(
+            {"Name": ["台積電", "鴻海"], "Holding Percent": [0.5712, 0.0421]},
+            index=pd.Index(["2330.TW", "2317.TW"], name="Symbol"),
+        )
+        holdings = fetcher_module._parse_top_holdings(frame)
+        self.assertEqual(holdings[0]["symbol"], "2330.TW")
+        self.assertAlmostEqual(holdings[0]["weight_pct"], 57.12)
+        self.assertAlmostEqual(holdings[1]["weight_pct"], 4.21)
+
+    def test_percent_weights_are_left_alone(self):
+        frame = pd.DataFrame({"name": ["Apple", "Microsoft"], "holdingPercent": [7.12, 6.05]},
+                             index=["AAPL", "MSFT"])
+        holdings = fetcher_module._parse_top_holdings(frame)
+        self.assertAlmostEqual(holdings[0]["weight_pct"], 7.12)
+
+    def test_list_of_dicts_is_accepted(self):
+        holdings = fetcher_module._parse_top_holdings([
+            {"symbol": "A", "name": "Alpha", "weight": 0.33},
+            {"symbol": "B", "name": "Beta", "weight": 0.21},
+        ])
+        self.assertEqual([item["name"] for item in holdings], ["Alpha", "Beta"])
+        self.assertAlmostEqual(holdings[0]["weight_pct"], 33.0)
+
+    def test_missing_or_broken_input_returns_empty(self):
+        self.assertEqual(fetcher_module._parse_top_holdings(None), [])
+        self.assertEqual(fetcher_module._parse_top_holdings(pd.DataFrame()), [])
+        self.assertEqual(fetcher_module._parse_top_holdings(object()), [])
+        self.assertEqual(fetcher_module._parse_top_holdings([{"foo": "bar"}]), [])
+
+    def test_only_ten_rows_are_kept(self):
+        frame = pd.DataFrame({"Name": [f"N{i}" for i in range(25)],
+                              "Holding Percent": [0.01] * 25},
+                             index=[f"S{i}" for i in range(25)])
+        self.assertEqual(len(fetcher_module._parse_top_holdings(frame)), 10)
+
+    def test_funds_data_works_as_property_or_method(self):
+        class AsProperty:
+            funds_data = "payload"
+
+        class AsMethod:
+            def get_funds_data(self):
+                return "payload"
+
+        class Broken:
+            @property
+            def funds_data(self):
+                raise RuntimeError("boom")
+
+        self.assertEqual(fetcher_module._funds_data(AsProperty()), "payload")
+        self.assertEqual(fetcher_module._funds_data(AsMethod()), "payload")
+        self.assertIsNone(fetcher_module._funds_data(Broken()))
+        self.assertIsNone(fetcher_module._funds_data(object()))
+
+    def test_fund_profile_survives_broken_sector_weights(self):
+        class FakeFundsData:
+            fund_overview = {"categoryName": "台股大型股"}
+            sector_weightings = {"tech": 0.68, "broken": "n/a", "fin": 0.12}
+            description = "測試用"
+            top_holdings = None
+
+        class FakeTicker:
+            def __init__(self, symbol):
+                self.symbol = symbol
+            funds_data = FakeFundsData()
+
+        original = fetcher_module.yf
+        fetcher_module.yf = type("FakeYf", (), {"Ticker": FakeTicker})
+        try:
+            profile = fetcher_module.StockDataFetcher().get_fund_profile("0056.TW")
+        finally:
+            fetcher_module.yf = original
+
+        self.assertEqual([item["sector"] for item in profile["sector_weightings"]], ["tech", "fin"])
+        self.assertAlmostEqual(profile["sector_weightings"][0]["weight_pct"], 68.0)
+        # 沒有持股就要給發行商資訊，前端才有東西可以顯示
+        self.assertEqual(profile["holdings_reference"]["issuer"], "元大投信")
+
+    def test_mixed_sector_weights_use_one_shared_scale(self):
+        """百分比與比例混在一起時，不能逐筆判斷（CodeRabbit review #11）。"""
+        class FakeFundsData:
+            fund_overview = {}
+            sector_weightings = {"tech": 40.0, "fin": 0.9}
+            description = None
+            top_holdings = None
+
+        class FakeTicker:
+            def __init__(self, symbol):
+                self.symbol = symbol
+            funds_data = FakeFundsData()
+
+        original = fetcher_module.yf
+        fetcher_module.yf = type("FakeYf", (), {"Ticker": FakeTicker})
+        try:
+            profile = fetcher_module.StockDataFetcher().get_fund_profile("0056.TW")
+        finally:
+            fetcher_module.yf = original
+
+        weights = {item["sector"]: item["weight_pct"] for item in profile["sector_weightings"]}
+        # 總和 40.9 > 1.5，所以整批都當成百分比；0.9 不可以被放大成 90
+        self.assertAlmostEqual(weights["tech"], 40.0)
+        self.assertAlmostEqual(weights["fin"], 0.9)
+
+    def test_tw_etf_falls_back_to_the_issuer(self):
+        reference = fetcher_module._tw_etf_issuer("0050.TW")
+        self.assertEqual(reference["issuer"], "元大投信")
+        self.assertTrue(reference["url"].startswith("https://"))
+        self.assertEqual(fetcher_module._tw_etf_issuer("00878.TW")["issuer"], "國泰投信")
+
+    def test_issuer_fallback_skips_stocks_and_us_symbols(self):
+        self.assertIsNone(fetcher_module._tw_etf_issuer("2330.TW"))
+        self.assertIsNone(fetcher_module._tw_etf_issuer("SPY"))
+        self.assertIsNone(fetcher_module._tw_etf_issuer(None))
 
 
 if __name__ == "__main__":

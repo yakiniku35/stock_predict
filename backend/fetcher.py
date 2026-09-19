@@ -29,6 +29,11 @@ try:
 except ImportError:  # pragma: no cover - 由執行方式決定
     import symbols as symbol_utils
 
+try:
+    from . import tw_exrights
+except ImportError:  # pragma: no cover - 由執行方式決定
+    import tw_exrights
+
 
 logger = logging.getLogger(__name__)
 
@@ -346,37 +351,52 @@ class StockDataFetcher:
         `records` 則是每一次的除息明細。
         """
         if not symbol or yf is None:
-            return {"status": "unavailable", "dividends": None, "splits": None}
+            return {"status": "unavailable", "dividends": None, "splits": None, "rights": None}
 
         cache_key = ("actions", symbol)
         cached = self._profile_cache.get(cache_key)
         if cached is not None:
             return _with_yield(cached, latest_price)
 
+        dividends = splits = None
+        yfinance_ok = True
         try:
             ticker = yf.Ticker(symbol)
             dividends = ticker.dividends
             splits = ticker.splits
         except Exception as exc:  # pragma: no cover - 網路例外
+            # yfinance 掛了不代表證交所的除權資料也拿不到，所以不直接 return
             logger.warning("%s 配息 / 分割讀取失敗: %s", symbol, exc)
-            return {"status": "unavailable", "dividends": None, "splits": None}
+            yfinance_ok = False
 
         payload = {
             "status": "ok",
             "dividends": _summarize_dividends(dividends),
-            "splits": _summarize_splits(splits),
+            "splits": _summarize_splits(splits, symbol),
+            "rights": _summarize_rights(splits, symbol, _tw_exrights_for(symbol)),
         }
-        if not payload["dividends"] and not payload["splits"]:
-            payload["status"] = "empty"
-        self._profile_cache.set(cache_key, payload)
+        if not payload["dividends"] and not payload["splits"] and not payload["rights"]:
+            payload["status"] = "empty" if yfinance_ok else "unavailable"
+        if _is_tw_symbol(symbol) and tw_exrights.is_loading():
+            # 證交所資料還在背景抓。這時 payload["rights"] 可能已經有值（由 splits 推算），
+            # 但還少了證交所的參考價，所以一樣要標記 pending —— 否則這份「推算版」會被
+            # 快取住，要等 TTL 過了才換成權威資料。
+            payload["rights_pending"] = True
+        if not payload.get("rights_pending"):
+            self._profile_cache.set(cache_key, payload)
         return _with_yield(payload, latest_price)
 
     # ------------------------------------------------------------------ #
     # ETF 成分（前十大持股 / 產業分布）
     # ------------------------------------------------------------------ #
     def get_fund_profile(self, symbol: str) -> dict | None:
-        """ETF 專屬資料；yfinance 版本或資料缺漏時回傳 None。"""
-        if not symbol or yf is None:
+        """ETF 專屬資料。
+
+        Yahoo 對台股 ETF 幾乎都沒有成分股，所以查不到時不是直接回 None，
+        而是回一個只有 `holdings_reference`（發行商資訊）的結果，
+        讓前端可以把「請到發行商官網查」這件事講清楚。
+        """
+        if not symbol:
             return None
 
         cache_key = ("fund", symbol)
@@ -384,40 +404,47 @@ class StockDataFetcher:
         if cached is not None:
             return cached
 
-        try:
-            funds_data = yf.Ticker(symbol).funds_data
-            overview = dict(getattr(funds_data, "fund_overview", None) or {})
-            holdings_frame = getattr(funds_data, "top_holdings", None)
-            sectors = dict(getattr(funds_data, "sector_weightings", None) or {})
-            description = getattr(funds_data, "description", None)
-        except Exception:
-            return None
-
+        overview: dict = {}
+        sectors: dict = {}
         holdings: list[dict] = []
-        try:
-            if holdings_frame is not None and not holdings_frame.empty:
-                for index, row in holdings_frame.head(10).iterrows():
-                    weight = _clean_number(row.get("Holding Percent"))
-                    holdings.append({
-                        "symbol": str(index),
-                        "name": str(row.get("Name") or index),
-                        "weight_pct": round(weight * 100.0, 2) if weight is not None and weight <= 1 else weight,
-                    })
-        except Exception:
-            holdings = []
+        description = None
+
+        if yf is not None:
+            funds_data = _funds_data(yf.Ticker(symbol))
+            if funds_data is not None:
+                overview = dict(_safe_attr(funds_data, "fund_overview") or {})
+                sectors = dict(_safe_attr(funds_data, "sector_weightings") or {})
+                description = _safe_attr(funds_data, "description")
+                holdings = _parse_top_holdings(_safe_attr(funds_data, "top_holdings"))
+
+        # 產業權重：Yahoo 有時給比例、有時給百分比，也可能塞進非數字，所以先清洗再排序
+        cleaned_sectors = [
+            (key, weight) for key, weight in
+            ((key, _clean_number(value)) for key, value in sectors.items())
+            if weight is not None
+        ]
+        # 比例還是百分比要看「全部加起來」，逐筆判斷會讓 40 與 0.9 混在一起時
+        # 變成 40% 與 90%（跟 _parse_top_holdings 同一個道理）
+        sector_scale = _scale_weights([weight for _, weight in cleaned_sectors])
+        sector_weightings = [
+            {"sector": key, "weight_pct": round(weight * sector_scale, 2)}
+            for key, weight in sorted(cleaned_sectors, key=lambda item: -abs(item[1]))
+        ][:10]
 
         profile = {
             "description": description,
             "overview": {key: _clean_number(value) if isinstance(value, (int, float)) else value
                          for key, value in overview.items()},
             "top_holdings": holdings,
-            "sector_weightings": [
-                {"sector": key, "weight_pct": round(float(value) * 100.0, 2)}
-                for key, value in sorted(sectors.items(), key=lambda item: -float(item[1] or 0))
-                if value is not None
-            ][:10],
+            "sector_weightings": sector_weightings,
         }
-        if not holdings and not profile["sector_weightings"] and not overview:
+
+        if not holdings:
+            reference = _tw_etf_issuer(symbol)
+            if reference:
+                profile["holdings_reference"] = reference
+
+        if not holdings and not sector_weightings and not overview and not profile.get("holdings_reference"):
             return None
         self._profile_cache.set(cache_key, profile)
         return profile
@@ -568,16 +595,23 @@ def _summarize_dividends(series) -> dict | None:
     }
 
 
-def _summarize_splits(series) -> dict | None:
-    """整理股票分割（拆股 / 反向分割）紀錄。"""
+def _summarize_splits(series, symbol: str | None = None) -> dict | None:
+    """整理股票分割（拆股 / 反向分割）紀錄。
+
+    台股的配股也躺在 splits 裡，但那是「除權」不是分割，
+    會被 `_summarize_rights()` 接走，所以這裡直接跳過。
+    """
     if series is None or len(series) == 0:
         return None
 
+    tw = _is_tw_symbol(symbol)
     records: list[dict] = []
     for timestamp, value in series.items():
         ratio = _clean_number(value)
         date_text = _to_date_string(timestamp)
         if not ratio or ratio <= 0 or not date_text:
+            continue
+        if tw and _looks_like_tw_rights(ratio):
             continue
         if ratio >= 1:
             label = f"1 股 → {_format_ratio(ratio)} 股（分割）"
@@ -591,6 +625,289 @@ def _summarize_splits(series) -> dict | None:
         return None
     records.sort(key=lambda item: item["date"], reverse=True)
     return {"records": records[:20], "count": len(records), "latest": records[0]}
+
+
+# --------------------------------------------------------------------------- #
+# ETF 成分股解析（yfinance 各版本的欄位名稱不太一樣，這裡做寬鬆比對）
+# --------------------------------------------------------------------------- #
+_HOLDING_SYMBOL_KEYS = ("Symbol", "symbol", "Holding Symbol", "holdingSymbol", "ticker")
+_HOLDING_NAME_KEYS = ("Name", "name", "Holding Name", "holdingName", "holding_name")
+_HOLDING_WEIGHT_KEYS = (
+    "Holding Percent", "holdingPercent", "holding_percent",
+    "Holding Percentage", "Weight", "weight", "weight_pct",
+)
+
+# 台股 ETF 的成分股 Yahoo 幾乎都沒有，只能導去發行商官網。
+# 這裡刻意只放「官網首頁」而不是每檔 ETF 的深層連結——深層網址常常改版就失效。
+_TW_ETF_ISSUERS: tuple[tuple[str, str, str | None], ...] = (
+    ("元大", "元大投信", "https://www.yuantaetfs.com/"),
+    ("國泰", "國泰投信", "https://www.cathaysite.com.tw/"),
+    ("富邦", "富邦投信", "https://www.fubon.com/asset-management/"),
+    ("中信", "中國信託投信", "https://www.ctbcinvestments.com/"),
+    ("群益", "群益投信", "https://www.capitalfund.com.tw/"),
+    ("復華", "復華投信", "https://www.fhtrust.com.tw/"),
+    ("野村", "野村投信", "https://www.nomurafunds.com.tw/"),
+    ("永豐", "永豐投信", None),
+    ("兆豐", "兆豐投信", None),
+)
+
+
+def _safe_attr(obj, name: str):
+    """讀取屬性時順便吃掉 yfinance 內部可能丟出的例外。"""
+    try:
+        return getattr(obj, name, None)
+    except Exception:
+        return None
+
+
+def _extract_field(row, keys: tuple[str, ...]):
+    """從 dict / Series 裡依序找第一個存在的欄位。"""
+    for key in keys:
+        try:
+            value = row[key]
+        except (KeyError, IndexError, TypeError):
+            continue
+        if value is not None and not (isinstance(value, float) and math.isnan(value)):
+            return value
+    return None
+
+
+def _holdings_rows(frame) -> list[tuple[object, object]]:
+    """把 DataFrame / list[dict] 都轉成 (index, row) 的序列。"""
+    if frame is None:
+        return []
+    if hasattr(frame, "iterrows"):
+        try:
+            if frame.empty:
+                return []
+            return list(frame.head(10).iterrows())
+        except Exception:
+            return []
+    if isinstance(frame, dict):
+        return list(frame.items())[:10]
+    if isinstance(frame, (list, tuple)):
+        return [(None, row) for row in frame[:10]]
+    return []
+
+
+def _scale_weights(weights: list[float | None]) -> float:
+    """Yahoo 有時給比例（0.0712）有時給百分比（7.12），看總和決定要不要乘 100。"""
+    numbers = [value for value in weights if value is not None]
+    if not numbers:
+        return 1.0
+    return 100.0 if sum(numbers) <= 1.5 else 1.0
+
+
+def _parse_top_holdings(frame) -> list[dict]:
+    """把 yfinance 的前十大持股整理成前端用的結構（解析不了就回空清單）。"""
+    rows = _holdings_rows(frame)
+    if not rows:
+        return []
+
+    raw: list[tuple[str, str, float | None]] = []
+    for index, row in rows:
+        symbol = _extract_field(row, _HOLDING_SYMBOL_KEYS)
+        if symbol is None and index is not None:
+            symbol = index
+        name = _extract_field(row, _HOLDING_NAME_KEYS)
+        weight = _clean_number(_extract_field(row, _HOLDING_WEIGHT_KEYS))
+        label = str(name or symbol or "").strip()
+        if not label:
+            continue
+        raw.append((str(symbol or "").strip(), label, weight))
+
+    scale = _scale_weights([weight for _, _, weight in raw])
+    return [
+        {
+            "symbol": symbol,
+            "name": name,
+            "weight_pct": round(weight * scale, 2) if weight is not None else None,
+        }
+        for symbol, name, weight in raw
+    ]
+
+
+def _funds_data(ticker):
+    """yfinance 有的版本是 `funds_data` 屬性、有的是 `get_funds_data()`，兩種都試。"""
+    for attribute in ("funds_data", "get_funds_data"):
+        try:
+            value = getattr(ticker, attribute, None)
+            if value is None:
+                continue
+            return value() if callable(value) else value
+        except Exception:
+            continue
+    return None
+
+
+def _tw_etf_issuer(symbol: str | None) -> dict | None:
+    """台股 ETF 查不到成分股時，至少告訴使用者發行商是誰。"""
+    if not _is_tw_symbol(symbol):
+        return None
+    code = str(symbol).split(".")[0]
+    catalog: dict = {}
+    try:
+        catalog = symbol_utils.resolve(code).get("catalog") or {}
+    except Exception:  # pragma: no cover - 字典尚未載入
+        catalog = {}
+    name = catalog.get("name_zh") or ""
+    # 字典已經知道這是普通股就不要給發行商連結（理論上不會走到這裡）
+    if not name or catalog.get("kind") == "stock":
+        return None
+
+    for keyword, issuer, url in _TW_ETF_ISSUERS:
+        if keyword and keyword in name:
+            return {"issuer": issuer, "url": url, "fund_name": name}
+    return {"issuer": None, "url": None, "fund_name": name}
+
+
+# --------------------------------------------------------------------------- #
+# 除權（股票股利）
+# --------------------------------------------------------------------------- #
+# 台股「配股」在 yfinance 裡是以 splits 的形式出現：每仟股配 100 股會變成
+# ratio 1.1。真正的股票分割台股極少見，而且倍數通常是 2 以上，
+# 所以 1 < ratio <= 1.5 一律視為配股；超過的仍當成分割。
+TW_RIGHTS_RATIO_MAX = 1.5
+
+RIGHTS_KIND_LABELS = {
+    "rights": "除權",
+    "dividend": "除息",
+    "both": "除權息",
+    "unknown": "—",
+}
+
+
+def _is_tw_symbol(symbol: str | None) -> bool:
+    """是不是台股代號（上市 .TW / 上櫃 .TWO）。"""
+    return bool(symbol) and str(symbol).upper().endswith((".TW", ".TWO"))
+
+
+def _looks_like_tw_rights(ratio: float | None) -> bool:
+    """台股 splits 的 ratio 落在配股區間嗎？"""
+    return bool(ratio) and 1.0 < ratio <= TW_RIGHTS_RATIO_MAX
+
+
+def _rights_from_ratio(date_text: str, ratio: float) -> dict:
+    """把 splits 的 ratio 還原成配股資訊。
+
+    ratio 1.1 → 每股多拿 0.1 股 → 每仟股配 100 股。
+
+    這裡刻意「只講股數、不講金額」：把配股換算成「股票股利 N 元」要假設面額
+    10 元，但證交所允許無面額或非 10 元面額的股票，ratio 本身也看不出面額，
+    算出來的金額可能是錯的。股數則是純粹由 ratio 導出，一定正確。
+    """
+    bonus = ratio - 1.0
+    shares = bonus * 1000.0
+    return {
+        "date": date_text,
+        "kind": "rights",
+        "kind_label": RIGHTS_KIND_LABELS["rights"],
+        "ratio": round(ratio, 6),
+        "shares_per_1000": round(shares, 2),
+        "label": f"每仟股配 {_format_ratio(shares)} 股",
+        "source": "splits",
+    }
+
+
+def _rights_from_twse(record: dict) -> dict:
+    """證交所除權除息計算結果表的一列 → 前端用的結構。"""
+    kind = record.get("kind") or "unknown"
+    reference = record.get("reference_price")
+    before = record.get("before_price")
+    drop_pct = None
+    if before and reference and before > 0:
+        drop_pct = round((before - reference) / before * 100.0, 2)
+    return {
+        "date": record.get("date"),
+        "kind": kind,
+        "kind_label": record.get("kind_label") or RIGHTS_KIND_LABELS.get(kind, "—"),
+        "before_price": before,
+        "reference_price": reference,
+        "value": record.get("value"),
+        "drop_pct": drop_pct,
+        "label": _twse_rights_label(kind, record.get("value")),
+        "source": "twse",
+    }
+
+
+def _twse_rights_label(kind: str, value: float | None) -> str:
+    """證交所紀錄的一句話說明，例如「除權息，權值+息值 14 元」。"""
+    name = RIGHTS_KIND_LABELS.get(kind, "除權息")
+    if value is None:
+        return name
+    return f"{name}，權值+息值 {_format_ratio(value)} 元"
+
+
+def _merge_rights(twse_rows: list[dict], split_rows: list[dict]) -> list[dict]:
+    """同一天的兩份資料合併：證交所提供價格，splits 提供配股率。"""
+    merged: dict[str, dict] = {}
+    for row in twse_rows:
+        if row.get("date"):
+            merged[row["date"]] = dict(row)
+
+    for row in split_rows:
+        existing = merged.get(row["date"])
+        if existing is None:
+            merged[row["date"]] = dict(row)
+            continue
+        for key in ("ratio", "shares_per_1000"):
+            if row.get(key) is not None:
+                existing[key] = row[key]
+        # 證交所只說「權」或「權息」，配股率是 splits 才有的細節，補進說明裡
+        existing["label"] = f"{existing['label']}；{row['label']}"
+        existing["source"] = "twse+splits"
+
+    return sorted(merged.values(), key=lambda item: item["date"], reverse=True)
+
+
+def _tw_exrights_for(symbol: str | None) -> list[dict]:
+    """安全地取證交所除權息紀錄；非台股或抓不到都回空清單。"""
+    if not _is_tw_symbol(symbol):
+        return []
+    code = str(symbol).split(".")[0]
+    try:
+        return tw_exrights.get_records_for(code)
+    except Exception as exc:  # pragma: no cover - 網路 / 解析例外
+        logger.warning("%s 證交所除權息讀取失敗: %s", symbol, exc)
+        return []
+
+
+def _summarize_rights(series, symbol: str | None = None, twse_records: list[dict] | None = None) -> dict | None:
+    """整理除權（股票股利）紀錄；非台股或查無資料回傳 None。"""
+    if not _is_tw_symbol(symbol):
+        return None
+
+    split_rows: list[dict] = []
+    if series is not None and len(series) > 0:
+        for timestamp, value in series.items():
+            ratio = _clean_number(value)
+            date_text = _to_date_string(timestamp)
+            if not date_text or not _looks_like_tw_rights(ratio):
+                continue
+            split_rows.append(_rights_from_ratio(date_text, ratio))
+
+    twse_rows = [
+        _rights_from_twse(record)
+        for record in (twse_records or [])
+        # 純除息已經在「配息」分頁了，這裡只留跟除權有關的
+        if record.get("kind") in {"rights", "both"} and record.get("date")
+    ]
+
+    records = _merge_rights(twse_rows, split_rows)
+    if not records:
+        return None
+
+    total_shares = sum(row.get("shares_per_1000") or 0.0 for row in records)
+    sources = {row["source"] for row in records}
+
+    return {
+        "records": records[:30],
+        "count": len(records),
+        "latest": records[0],
+        "total_shares_per_1000": round(total_shares, 2) if total_shares else None,
+        "has_twse": any("twse" in source for source in sources),
+        "sources": sorted(sources),
+    }
 
 
 def _format_ratio(value: float) -> str:

@@ -108,7 +108,7 @@ python -m crawler.news_scraper \
 
 ```bash
 ./start.sh          # 開啟 http://127.0.0.1:5000
-python tests/test_stocksense.py   # 94 個離線測試，不需要網路
+python tests/test_stocksense.py   # 124 個離線測試，不需要網路
 ```
 
 ### 主要功能
@@ -142,7 +142,7 @@ python scripts/update_symbol_directory.py             # 台股 + 美股
 python scripts/update_symbol_directory.py --market us # 只更新美股
 ```
 
-### 配息與分割
+### 配息、除權與分割
 
 `/api/stock_insight` 會一併回傳 `corporate_actions`：
 
@@ -155,7 +155,34 @@ python scripts/update_symbol_directory.py --market us # 只更新美股
 | `dividends.frequency` | 月配 / 季配 / 半年配 / 年配（由配息次數自動判斷） |
 | `dividends.consecutive_years` | 連續配息年數 |
 | `splits.records` | 股票分割與反向分割紀錄，附「1 股 → 4 股（分割）」這類說明 |
-| `fund_profile` | ETF 專屬：前十大持股與產業分布 |
+| `rights.records` | **除權（配股）紀錄**：除權日、類別、每仟股配股數、除權參考價 |
+| `rights.total_shares_per_1000` | 期間內累計每仟股配股數 |
+| `rights.has_twse` | 是否取得證交所的權威資料（否則是由還原係數推算） |
+| `fund_profile` | ETF 專屬：前十大持股與產業分布；查不到時給 `holdings_reference`（發行商） |
+
+#### 台股的除權是怎麼算出來的
+
+yfinance 的 `dividends` 只有**現金股利**，台股的**配股**不在裡面，而是躲在
+`splits` 裡（每仟股配 100 股 → ratio 1.1）。所以做了兩件事：
+
+1. **判讀**：台股 ratio 落在 `1 < ratio <= 1.5` 一律視為配股而非分割，
+   還原成「每仟股配 N 股」（只講股數不講金額：換算成「股票股利 N 元」要假設面額
+   10 元，但證交所允許無面額或非 10 元面額的股票）；真正的分割（例如 ratio 2）仍留在分割分頁，
+   同一筆不會重複出現在兩個分頁。
+2. **補權威資料**：`backend/tw_exrights.py` 另外接證交所的
+   [除權除息計算結果表（TWT49U）](https://www.twse.com.tw/zh/trading/exchange/twt49u.html)，
+   補上「權/息」類別、除權息前收盤價與參考價。這份資料在**背景執行緒**抓取並快取 12 小時
+   （失敗只快取 30 分鐘），API 不會因為證交所變慢而卡住；抓不到就安靜地退回第 1 步的推算。
+
+#### ETF 成分股查不到的時候
+
+Yahoo Finance 對台股 ETF 幾乎都沒有成分股資料。`get_fund_profile()` 因此：
+
+- 同時支援 `funds_data` 屬性與 `get_funds_data()` 方法，欄位名稱（`Holding Percent` /
+  `holdingPercent` / `Weight`…）也做寬鬆比對，換 yfinance 版本不會整個壞掉；
+- 權重是「比例」還是「百分比」用**總和**判斷（總和 ≤ 1.5 才乘 100），不會把 0.9% 誤放大成 90%；
+- 真的查不到時回傳 `holdings_reference`，前端顯示「這檔由元大投信發行，完整持股請看發行商公告」
+  並附上官網連結，而不是只丟一句「沒有資料」。
 
 另外基本資料也大幅擴充：
 
@@ -234,6 +261,7 @@ stock_predict/
 │   ├── tw_directory.py       # 台股完整清單（中文名稱查詢）
 │   ├── us_directory.py       # 美股完整清單（英文名稱查詢）
 │   ├── directory_cache.py    # 名稱清單的快照 / 快取 / 抓取共用邏輯
+│   ├── tw_exrights.py       # 證交所除權除息計算結果表（台股配股 / 除權）
 │   ├── analytics.py          # 風險指標、定期定額試算、比較序列
 │   ├── symbol_catalog.py     # 熱門台股／美股／ETF 離線字典
 │   ├── indicators.py         # 技術指標序列與最新快照
@@ -247,7 +275,7 @@ stock_predict/
 ├── models/                   # 情緒模型訓練／推論腳本與權重
 ├── crawler/                  # 多來源新聞爬蟲
 ├── tests/
-│   └── test_stocksense.py    # 94 個離線測試（合成資料，不需網路）
+│   └── test_stocksense.py    # 124 個離線測試（合成資料，不需網路）
 ├── data/                     # 本機資料集與管線輸出
 ├── scripts/
 │   └── update_symbol_directory.py   # 更新名稱對照表快照
