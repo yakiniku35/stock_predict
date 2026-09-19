@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover - 由執行方式決定
 
 NASDAQ_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
 OTHER_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
-REQUEST_TIMEOUT = 25
+REQUEST_TIMEOUT = 20
 
 # 去掉證券名稱後面的類別描述，例如 "Apple Inc. - Common Stock"
 _NAME_SUFFIX = re.compile(
@@ -114,8 +114,20 @@ _cache = DirectoryCache("us_securities", fetch_from_nasdaq)
 
 
 def load_entries(force_refresh: bool = False) -> list[dict]:
+    """同步載入（必要時連外）；給更新腳本使用。"""
     return _cache.load(force_refresh=force_refresh)
 
 
+def load_local_entries() -> list[dict]:
+    """查詢路徑專用：只讀本機資料，需要連外時改在背景抓取，不會卡住請求。"""
+    return _cache.load_local()
+
+
 def status() -> dict:
+    """給 /api/health 顯示目前名稱對照表的狀態（不會觸發載入）。"""
     return _cache.status()
+
+
+def cache_version() -> int:
+    """資料版本；背景載入完成後會改變，供索引判斷是否重建。"""
+    return _cache.version

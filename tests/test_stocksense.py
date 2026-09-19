@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -339,6 +340,24 @@ class DividendAndSplitTests(unittest.TestCase):
         enriched = fetcher_module._with_yield(payload, 100.0)
         self.assertEqual(enriched["dividends"]["ttm_yield_pct"], 4.0)
 
+    def test_full_dividend_history_is_kept_for_simulation(self):
+        """配息紀錄不能被截斷，否則定期定額會少算早期的配息（Copilot #4052009879）。"""
+        pairs = [(date.strftime("%Y-%m-%d"), 0.1)
+                 for date in pd.date_range("2016-01-15", periods=120, freq="ME")]
+        summary = fetcher_module._summarize_dividends(self._series(pairs))
+        self.assertEqual(summary["total_records"], 120)
+        self.assertEqual(len(summary["records"]), 120)
+        self.assertEqual(summary["records"][-1]["date"], "2016-01-31")  # 最早一筆仍在
+
+    def test_dca_uses_every_dividend(self):
+        prices = make_prices(trending_series(n=520, slope=0.02, noise=0.3))
+        dividends = [{"date": record["date"], "amount": 1.0}
+                     for record in prices[::21]]      # 每月一次
+        result = analytics_engine.simulate_dca(prices, dividends, amount=1000)
+        self.assertGreater(result["dividend_total"], 0)
+        partial = analytics_engine.simulate_dca(prices, dividends[:3], amount=1000)
+        self.assertGreater(result["dividend_total"], partial["dividend_total"])
+
     def test_no_dividend_history(self):
         self.assertIsNone(fetcher_module._summarize_dividends(pd.Series(dtype=float)))
         self.assertIsNone(fetcher_module._summarize_dividends(None))
@@ -664,6 +683,48 @@ class SecurityTests(unittest.TestCase):
             self.assertNotIn(secret, str(result))
         finally:
             news_module.fetch_google_news = original
+
+    def test_health_never_triggers_a_network_load(self):
+        """/api/health 不能同步載入名稱清單，否則冷啟動會卡住（Copilot #4052009872）。"""
+        import directory_cache
+        import symbols as symbols_module
+
+        calls = []
+
+        def should_not_run():
+            calls.append(1)
+            raise AssertionError("health check 不應該觸發抓取")
+
+        cache = directory_cache.DirectoryCache("unit_test_health", should_not_run)
+        original_tw_status = symbols_module.tw_directory.status
+        symbols_module.tw_directory.status = cache.status
+        try:
+            payload = self.client.get("/api/health").get_json()
+            self.assertEqual(payload["status"], "healthy")
+            self.assertFalse(payload["symbol_directory"]["taiwan"]["ready"])
+            self.assertEqual(calls, [])
+        finally:
+            symbols_module.tw_directory.status = original_tw_status
+
+    def test_status_and_local_load_do_not_fetch_synchronously(self):
+        import directory_cache
+
+        fetches = []
+
+        def slow_fetcher():
+            fetches.append(1)
+            raise ConnectionError("不該擋住請求")
+
+        cache = directory_cache.DirectoryCache("unit_test_nonblocking", slow_fetcher)
+        self.assertEqual(cache.status()["loaded"], 0)
+        self.assertEqual(fetches, [])          # status 完全不抓
+
+        self.assertEqual(cache.load_local(), [])   # 只讀本機，立刻回來
+        for _ in range(40):                        # 背景執行緒最終會跑完
+            if not cache.status()["loading"]:
+                break
+            time.sleep(0.05)
+        self.assertLessEqual(len(fetches), 1)
 
     def test_directory_status_reports_category_not_raw_error(self):
         import directory_cache

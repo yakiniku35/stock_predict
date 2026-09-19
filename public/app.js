@@ -952,8 +952,10 @@ function renderCorporateActions(actions, overview) {
     }
 
     tagEl.textContent = dividends.frequency_label || '—';
-    $('dividendSubtitle').textContent =
-        `${dividends.first_date} 起共 ${dividends.total_records} 次配息紀錄`;
+    const shown = Math.min(dividends.records.length, 120);
+    $('dividendSubtitle').textContent = dividends.total_records > shown
+        ? `${dividends.first_date} 起共 ${dividends.total_records} 次配息紀錄（表格顯示最近 ${shown} 筆）`
+        : `${dividends.first_date} 起共 ${dividends.total_records} 次配息紀錄`;
 
     statsEl.innerHTML = [
         ['近12個月配息', `${fmtPrice(dividends.ttm_total, 2)}`, currency],
@@ -1017,7 +1019,7 @@ function renderActionTable(dividends, splits, currency) {
         <table class="data-table">
             <thead><tr><th>除息日</th><th>配息金額${currency ? `（${escapeHtml(currency)}）` : ''}</th><th>當年度累計</th></tr></thead>
             <tbody>
-                ${dividends.records.map((record) => {
+                ${dividends.records.slice(0, 120).map((record) => {
                     const year = record.date.slice(0, 4);
                     const yearTotal = dividends.yearly.find((item) => String(item.year) === year);
                     return `<tr>

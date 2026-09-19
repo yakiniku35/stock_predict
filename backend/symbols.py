@@ -59,29 +59,50 @@ def _lookup(text: str) -> dict | None:
 # 證交所完整清單（約 3,000 檔，讓沒收錄在內建字典的中文名稱也查得到）
 # --------------------------------------------------------------------------- #
 _directory_cache: dict | None = None
+_directory_versions: tuple = ()
+
+_DIRECTORY_MODULES = (
+    (tw_directory, "STOCKSENSE_DISABLE_TW_DIRECTORY"),
+    (us_directory, "STOCKSENSE_DISABLE_US_DIRECTORY"),
+)
+
+
+def _enabled_modules() -> list:
+    if os.environ.get("STOCKSENSE_DISABLE_DIRECTORY") == "1":
+        return []
+    return [module for module, flag in _DIRECTORY_MODULES if os.environ.get(flag) != "1"]
+
+
+def _directory_versions_now() -> tuple:
+    versions = []
+    for module in _enabled_modules():
+        try:
+            versions.append(module.cache_version())
+        except Exception:  # pragma: no cover
+            versions.append(-1)
+    return tuple(versions)
 
 
 def _directory_entries() -> list[dict]:
-    """台股 + 美股的完整清單（任一來源失敗都不影響另一個）。"""
-    if os.environ.get("STOCKSENSE_DISABLE_DIRECTORY") == "1":
-        return []
+    """台股 + 美股的完整清單。
 
+    只讀本機資料，需要連外時由 `directory_cache` 在背景抓取，
+    所以查詢路徑不會卡在網路上（抓好之前先用內建字典回答）。
+    """
     entries: list[dict] = []
-    for module, flag in ((tw_directory, "STOCKSENSE_DISABLE_TW_DIRECTORY"),
-                         (us_directory, "STOCKSENSE_DISABLE_US_DIRECTORY")):
-        if os.environ.get(flag) == "1":
-            continue
+    for module in _enabled_modules():
         try:
-            entries.extend(module.load_entries())
+            entries.extend(module.load_local_entries())
         except Exception:  # pragma: no cover - 任何載入問題都不應影響查詢
             continue
     return entries
 
 
 def _directory_index() -> dict:
-    """建立代號 / 名稱索引；只在第一次使用時建立，之後重複使用。"""
-    global _directory_cache
-    if _directory_cache is not None:
+    """建立代號 / 名稱索引；背景載入完成（版本改變）時會自動重建。"""
+    global _directory_cache, _directory_versions
+    versions = _directory_versions_now()
+    if _directory_cache is not None and versions == _directory_versions:
         return _directory_cache
 
     by_code: dict[str, dict] = {}
@@ -110,20 +131,25 @@ def _directory_index() -> dict:
         "by_symbol": by_symbol,
         "by_name": by_name,
     }
+    _directory_versions = versions
     return _directory_cache
 
 
 def directory_status() -> dict:
-    """給 /api/health 顯示名稱對照表狀態。"""
+    """給 /api/health 顯示名稱對照表狀態。
+
+    **不會觸發任何載入或網路請求**：只回報目前記憶體 / 檔案的狀態，
+    所以健康檢查不會因為冷啟動而等待外部服務。
+    """
     def _safe(module) -> dict:
         try:
             return module.status()
         except Exception:  # pragma: no cover
-            return {"loaded": 0, "error": "unavailable"}
+            return {"loaded": 0, "ready": False, "error": "unavailable"}
 
     return {
         "catalog_entries": len(CATALOG),
-        "merged_entries": len(_directory_index()["entries"]),
+        "merged_entries": len(_directory_cache["entries"]) if _directory_cache else 0,
         "taiwan": _safe(tw_directory),
         "united_states": _safe(us_directory),
     }

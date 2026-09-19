@@ -548,9 +548,11 @@ def _summarize_dividends(series) -> dict | None:
     latest_date, latest_amount = points[-1]
 
     return {
+        # 完整歷史（新到舊）：定期定額試算需要每一筆配息，
+        # 只有前端表格會自己截斷顯示筆數。上限 600 筆純粹是防呆。
         "records": [
             {"date": date_text, "amount": amount}
-            for date_text, amount in reversed(points[-60:])
+            for date_text, amount in reversed(points[-600:])
         ],
         "yearly": yearly,
         "ttm_total": ttm_total,

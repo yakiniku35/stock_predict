@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover - 由執行方式決定
 
 # 證交所 ISIN 查詢頁：strMode=2 上市、strMode=4 上櫃
 ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode={mode}"
-REQUEST_TIMEOUT = 20
+REQUEST_TIMEOUT = 15
 
 _CODE_PATTERN = re.compile(r"^(\d{4,6}[A-Z]?)$")
 _CELL_PATTERN = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
@@ -105,10 +105,20 @@ RUNTIME_CACHE = _cache.runtime_path
 
 
 def load_entries(force_refresh: bool = False) -> list[dict]:
-    """取得完整台股清單；任何失敗都回傳空清單（呼叫端自動退回內建字典）。"""
+    """同步載入（必要時連外）；給更新腳本使用。"""
     return _cache.load(force_refresh=force_refresh)
 
 
+def load_local_entries() -> list[dict]:
+    """查詢路徑專用：只讀本機資料，需要連外時改在背景抓取，不會卡住請求。"""
+    return _cache.load_local()
+
+
 def status() -> dict:
-    """給 /api/health 顯示目前名稱對照表的狀態。"""
+    """給 /api/health 顯示目前名稱對照表的狀態（不會觸發載入）。"""
     return _cache.status()
+
+
+def cache_version() -> int:
+    """資料版本；背景載入完成後會改變，供索引判斷是否重建。"""
+    return _cache.version

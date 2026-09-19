@@ -6,6 +6,12 @@
 2. 再找執行時快取 `data/runtime/<name>.json`（預設 7 天內有效）
 3. 都沒有才上網抓，抓到後寫入執行時快取
 4. 全部失敗就回傳空清單，呼叫端自動退回內建字典
+
+重要：**請求路徑不會卡在網路上**。
+`load_local()` 只讀記憶體與本機檔案，需要連外時改在背景執行緒抓取，
+在抓好之前查詢會先用內建字典回答；`status()` 則完全不會觸發載入，
+所以 `/api/health` 這類健康檢查不會因為冷啟動而等上數十秒。
+完整的同步載入（`load()`）只留給 `scripts/update_symbol_directory.py` 這類工具使用。
 """
 
 from __future__ import annotations
@@ -39,51 +45,121 @@ class DirectoryCache:
         self._entries: list[dict] | None = None
         self._error: str | None = None
         self._source: str | None = None
+        self._fetching = False
+        self.version = 0   # 每次資料更新就 +1，供呼叫端判斷索引是否要重建
 
     # ------------------------------------------------------------------ #
+    def load_local(self) -> list[dict]:
+        """只讀記憶體與本機檔案（不會卡住）；需要連外時改在背景抓取。"""
+        with self._lock:
+            if self._entries is not None:
+                return self._entries
+
+            local = self._read_local()
+            if local is not None:
+                entries, source = local
+                self._entries, self._source = entries, source
+                self.version += 1
+                return self._entries
+
+        self._start_background_fetch()
+        return []
+
     def load(self, force_refresh: bool = False) -> list[dict]:
+        """同步載入（必要時會連外）。給更新腳本與明確要求重新整理時使用。"""
         with self._lock:
             if self._entries is not None and not force_refresh:
                 return self._entries
 
             if not force_refresh:
-                bundled = _read_json(self.bundled_path)
-                if bundled:
-                    self._entries, self._source = bundled, "bundled"
+                local = self._read_local()
+                if local is not None:
+                    entries, source = local
+                    self._entries, self._source = entries, source
+                    self.version += 1
                     return self._entries
-                if _is_fresh(self.runtime_path, self.max_age_seconds):
-                    cached = _read_json(self.runtime_path)
-                    if cached:
-                        self._entries, self._source = cached, "runtime_cache"
-                        return self._entries
 
-            try:
-                entries = self.fetcher()
-                if entries:
-                    _write_json(self.runtime_path, entries)
-                    self._entries, self._source, self._error = entries, "remote", None
-                    return self._entries
-                self._error = "資料來源回傳空清單"
-            except Exception as exc:
-                # 只保留錯誤類別對外顯示，完整訊息寫日誌
-                logger.warning("%s 清單抓取失敗: %s", self.name, exc)
-                self._error = _error_category(exc)
+        entries = self._fetch_remote()
+        if entries:
+            return entries
 
+        with self._lock:
             stale = _read_json(self.runtime_path)
             self._entries = stale or []
             self._source = "stale_cache" if stale else None
+            self.version += 1
             return self._entries
 
+    # ------------------------------------------------------------------ #
+    def _read_local(self) -> tuple[list[dict], str] | None:
+        """讀取隨程式碼發佈的快照或執行時快取（純本機檔案）。"""
+        bundled = _read_json(self.bundled_path)
+        if bundled:
+            return bundled, "bundled"
+        if _is_fresh(self.runtime_path, self.max_age_seconds):
+            cached = _read_json(self.runtime_path)
+            if cached:
+                return cached, "runtime_cache"
+        return None
+
+    def _fetch_remote(self) -> list[dict]:
+        """實際連外抓取；失敗只記錄錯誤類別。"""
+        try:
+            entries = self.fetcher()
+        except Exception as exc:
+            logger.warning("%s 清單抓取失敗: %s", self.name, exc)
+            with self._lock:
+                self._error = _error_category(exc)
+            return []
+
+        if not entries:
+            with self._lock:
+                self._error = "empty_response"
+            return []
+
+        _write_json(self.runtime_path, entries)
+        with self._lock:
+            self._entries, self._source, self._error = entries, "remote", None
+            self.version += 1
+        return entries
+
+    def _start_background_fetch(self) -> None:
+        """在背景抓取，避免任何請求卡在網路上；同時間只會有一個執行緒。"""
+        with self._lock:
+            if self._fetching or self._entries is not None:
+                return
+            self._fetching = True
+
+        def worker() -> None:
+            try:
+                entries = self._fetch_remote()
+                if not entries:
+                    with self._lock:
+                        # 抓不到就退回過期的快取，並記成已載入避免無限重試
+                        stale = _read_json(self.runtime_path)
+                        self._entries = stale or []
+                        self._source = "stale_cache" if stale else None
+                        self.version += 1
+            finally:
+                with self._lock:
+                    self._fetching = False
+
+        threading.Thread(target=worker, name=f"directory-{self.name}", daemon=True).start()
+
     def status(self) -> dict:
-        entries = self.load()
-        return {
-            "name": self.name,
-            "loaded": len(entries),
-            "source": self._source,
-            "bundled_snapshot": self.bundled_path.is_file(),
-            "runtime_cache": self.runtime_path.is_file(),
-            "error": self._error,   # 只會是固定的錯誤類別字串
-        }
+        """目前狀態；**不會**觸發任何載入或網路請求（健康檢查安全）。"""
+        with self._lock:
+            entries = self._entries
+            return {
+                "name": self.name,
+                "loaded": len(entries) if entries is not None else 0,
+                "ready": entries is not None,
+                "loading": self._fetching,
+                "source": self._source,
+                "bundled_snapshot": self.bundled_path.is_file(),
+                "runtime_cache": self.runtime_path.is_file(),
+                "error": self._error,   # 只會是固定的錯誤類別字串
+            }
 
     def reset(self) -> None:
         """測試用：清掉記憶體內的資料。"""
@@ -91,6 +167,8 @@ class DirectoryCache:
             self._entries = None
             self._error = None
             self._source = None
+            self._fetching = False
+            self.version += 1
 
 
 # --------------------------------------------------------------------------- #
