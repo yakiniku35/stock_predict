@@ -108,7 +108,7 @@ python -m crawler.news_scraper \
 
 ```bash
 ./start.sh          # 開啟 http://127.0.0.1:5000
-python tests/test_stocksense.py   # 120 個離線測試，不需要網路
+python tests/test_stocksense.py   # 121 個離線測試，不需要網路
 ```
 
 ### 主要功能
@@ -274,7 +274,7 @@ stock_predict/
 ├── models/                   # 情緒模型訓練／推論腳本與權重
 ├── crawler/                  # 多來源新聞爬蟲
 ├── tests/
-│   └── test_stocksense.py    # 120 個離線測試（合成資料，不需網路）
+│   └── test_stocksense.py    # 121 個離線測試（合成資料，不需網路）
 ├── data/                     # 本機資料集與管線輸出
 ├── scripts/
 │   └── update_symbol_directory.py   # 更新名稱對照表快照

@@ -978,6 +978,39 @@ class TaiwanRightsTests(unittest.TestCase):
         self.assertAlmostEqual(merged["drop_pct"], 2.33)
         self.assertTrue(rights["has_twse"])
 
+    def test_estimate_is_marked_pending_and_not_cached_while_twse_loads(self):
+        """證交所還在背景抓的時候，推算版不能被快取住（Copilot review #11）。"""
+        series = self.splits({"2021-07-15": 1.1})
+
+        class FakeTicker:
+            def __init__(self, symbol):
+                self.dividends = pd.Series(dtype=float)
+                self.splits = series
+
+        original_yf = fetcher_module.yf
+        original_lookup = fetcher_module._tw_exrights_for
+        original_is_loading = tw_exrights.is_loading
+        fetcher_module.yf = type("FakeYf", (), {"Ticker": FakeTicker})
+        fetcher_module._tw_exrights_for = lambda symbol: []        # 證交所還沒回來
+        tw_exrights.is_loading = lambda: True
+        try:
+            fetcher = fetcher_module.StockDataFetcher()
+            payload = fetcher.get_corporate_actions("2330.TW")
+            # 推算值照樣給使用者看，但要標記還沒拿到證交所資料
+            self.assertIsNotNone(payload["rights"])
+            self.assertTrue(payload["rights_pending"])
+            self.assertIsNone(fetcher._profile_cache.get(("actions", "2330.TW")))
+
+            # 證交所回來之後就可以快取了
+            tw_exrights.is_loading = lambda: False
+            settled = fetcher.get_corporate_actions("2330.TW")
+            self.assertNotIn("rights_pending", settled)
+            self.assertIsNotNone(fetcher._profile_cache.get(("actions", "2330.TW")))
+        finally:
+            fetcher_module.yf = original_yf
+            fetcher_module._tw_exrights_for = original_lookup
+            tw_exrights.is_loading = original_is_loading
+
     def test_empty_inputs_return_none(self):
         self.assertIsNone(fetcher_module._summarize_rights(None, "2330.TW", []))
         self.assertIsNone(fetcher_module._summarize_rights(pd.Series(dtype=float), "2330.TW", []))

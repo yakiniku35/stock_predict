@@ -374,11 +374,12 @@ class StockDataFetcher:
         }
         if not payload["dividends"] and not payload["splits"] and not payload["rights"]:
             payload["status"] = "empty"
-        if _is_tw_symbol(symbol) and not payload["rights"] and tw_exrights.is_loading():
-            # 證交所資料還在背景抓，前端可以提示「稍後重查」
+        if _is_tw_symbol(symbol) and tw_exrights.is_loading():
+            # 證交所資料還在背景抓。這時 payload["rights"] 可能已經有值（由 splits 推算），
+            # 但還少了證交所的參考價，所以一樣要標記 pending —— 否則這份「推算版」會被
+            # 快取住，要等 TTL 過了才換成權威資料。
             payload["rights_pending"] = True
         if not payload.get("rights_pending"):
-            # 還在等證交所的話先不要快取，不然要等 TTL 過了才看得到除權資料
             self._profile_cache.set(cache_key, payload)
         return _with_yield(payload, latest_price)
 

@@ -933,7 +933,13 @@ function renderCorporateActions(actions, overview) {
     const splits = actions?.splits;
 
     const rights = actions?.rights;
-    const available = { dividends: !!dividends, rights: !!rights, splits: !!splits };
+    // 證交所還在背景抓的時候 rights 會是空的，但分頁要留著，
+    // 使用者才看得到「正在取得資料，請稍後再查一次」
+    const available = {
+        dividends: !!dividends,
+        rights: !!rights || !!actions?.rights_pending,
+        splits: !!splits,
+    };
 
     els('[data-action-tab]').forEach((button) => {
         const key = button.dataset.actionTab;
@@ -949,7 +955,8 @@ function renderCorporateActions(actions, overview) {
 
     if (!dividends) {
         tagEl.textContent = (rights || splits) ? '無現金配息' : '無紀錄';
-        statsEl.innerHTML = '';
+        // 只配股不配息的台股仍然要看得到累計配股
+        statsEl.innerHTML = renderStatChips(rightsStats(rights));
         $('dividendSubtitle').textContent = actions?.status === 'unavailable'
             ? '暫時無法取得配息資料'
             : '這檔標的在 Yahoo Finance 沒有配息紀錄（常見於不配息個股或剛上市的 ETF）';
@@ -964,24 +971,31 @@ function renderCorporateActions(actions, overview) {
         ? `${dividends.first_date} 起共 ${dividends.total_records} 次配息紀錄（表格顯示最近 ${shown} 筆）`
         : `${dividends.first_date} 起共 ${dividends.total_records} 次配息紀錄`;
 
-    statsEl.innerHTML = [
+    statsEl.innerHTML = renderStatChips([
         ['近12個月配息', `${fmtPrice(dividends.ttm_total, 2)}`, currency],
         ['現金殖利率', dividends.ttm_yield_pct != null ? `${dividends.ttm_yield_pct}%` : '--', '以現價計算'],
         ['近三年平均', dividends.average_3y != null ? fmtPrice(dividends.average_3y, 2) : '--', '每年配息'],
         ['連續配息', `${dividends.consecutive_years} 年`, `累計 ${dividends.years_paid} 年有配息`],
         ['最近除息', dividends.latest?.date || '--', `配 ${fmtPrice(dividends.latest?.amount, 2)}`],
-        ...(rights?.total_shares_per_1000
-            ? [['累計配股', `${rights.total_shares_per_1000} 股`, `每仟股，共 ${rights.count} 次除權`]]
-            : []),
-    ].map(([label, value, note]) => `
+        ...rightsStats(rights),
+    ]);
+
+    drawDividendChart(dividends);
+    renderActionTable(actions, currency);
+}
+
+function rightsStats(rights) {
+    if (!rights?.total_shares_per_1000) return [];
+    return [['累計配股', `${rights.total_shares_per_1000} 股`, `每仟股，共 ${rights.count} 次除權`]];
+}
+
+function renderStatChips(rows) {
+    return rows.map(([label, value, note]) => `
         <div class="stat-chip">
             <dt>${escapeHtml(label)}</dt>
             <dd>${escapeHtml(value)}</dd>
             <small>${escapeHtml(note || '')}</small>
         </div>`).join('');
-
-    drawDividendChart(dividends);
-    renderActionTable(actions, currency);
 }
 
 function drawDividendChart(dividends) {
@@ -1056,9 +1070,12 @@ function renderRightsTable(rights, pending) {
             : '<div class="empty-state">沒有除權（配股）紀錄</div>';
     }
 
-    const note = rights.has_twse
+    let note = rights.has_twse
         ? '資料來源：證券交易所除權除息計算結果表'
         : '依 Yahoo Finance 的還原係數推算（台股配股會以「分割」的形式記錄）';
+    if (pending) {
+        note += '；證交所資料仍在背景取得中，稍後重查會補上參考價';
+    }
 
     return `
         <table class="data-table">
