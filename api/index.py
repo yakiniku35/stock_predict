@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import sys
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 ROOT_PATH = Path(__file__).resolve().parent.parent
@@ -34,12 +33,12 @@ import signals as signal_engine  # noqa: E402
 import symbols as symbol_utils  # noqa: E402
 from fetcher import StockDataFetcher  # noqa: E402
 
-app = Flask(__name__)
+# 本機開發時直接用 Flask 內建的靜態檔服務（`public/`）：
+# Werkzeug 的 safe_join 會處理路徑安全，程式裡不需要（也不應該）自己用
+# 使用者輸入組路徑。Vercel 上靜態檔由 CDN 提供，不會走到這條路由。
+app = Flask(__name__, static_folder=str(PUBLIC_PATH), static_url_path="")
 CORS(app)
 logger = logging.getLogger(__name__)
-
-# 靜態檔名允許的字元（只給本機開發用的靜態路由，避免路徑穿越）
-SAFE_STATIC_PATH = re.compile(r"^[A-Za-z0-9_./-]{1,128}$")
 
 fetcher = StockDataFetcher()
 
@@ -108,8 +107,8 @@ def _server_error(message: str, exc: Exception):
 @app.route("/")
 def home():
     """本機開發時直接把前端畫面送出；Vercel 上這條路由不會被用到（靜態檔由 CDN 提供）。"""
-    if (PUBLIC_PATH / "index.html").exists():
-        return send_from_directory(PUBLIC_PATH, "index.html")
+    if (PUBLIC_PATH / "index.html").is_file():
+        return app.send_static_file("index.html")
     return service_info()
 
 
@@ -400,28 +399,6 @@ def compare_symbols():
         "failed": failed,
         "best": ranked[0]["display_code"] if ranked else None,
     })
-
-
-@app.route("/<path:filename>")
-def static_assets(filename: str):
-    """本機開發用的靜態檔（styles.css / app.js）。
-
-    Vercel 上靜態檔由 CDN 提供，不會走到這裡。檔名先經過白名單與路徑檢查，
-    避免 `../` 之類的路徑穿越。
-    """
-    if not SAFE_STATIC_PATH.match(filename) or ".." in filename:
-        return jsonify({"status": "error", "message": "找不到檔案"}), 404
-
-    public_root = PUBLIC_PATH.resolve()
-    try:
-        target = (public_root / filename).resolve()
-        target.relative_to(public_root)          # 確認解析後仍在 public/ 之內
-    except (ValueError, OSError):
-        return jsonify({"status": "error", "message": "找不到檔案"}), 404
-
-    if not target.is_file():
-        return jsonify({"status": "error", "message": "找不到檔案"}), 404
-    return send_from_directory(public_root, target.relative_to(public_root).as_posix())
 
 
 handler = app
